@@ -18,6 +18,7 @@ Route::post('/contacts/{contact}/favorite', [ContactController::class, 'favorite
 // روت‌های اصلی مدیریت مخاطبین
 Route::get('/contacts', [ContactController::class, 'index']);
 Route::post('/contacts', [ContactController::class, 'store']);
+Route::post('/contacts/reorder', [ContactController::class, 'reorder']);
 Route::get('/contacts/{contact}', [ContactController::class, 'show']);
 Route::put('/contacts/{contact}', [ContactController::class, 'update']);
 Route::delete('/contacts/{contact}', [ContactController::class, 'destroy']);

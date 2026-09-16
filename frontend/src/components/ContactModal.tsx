@@ -26,6 +26,7 @@ import {
   BookmarkCheck,
   Sparkles,
   Radio,
+  RefreshCw,
 } from 'lucide-react';
 import { Contact, LandlineEntry, PrefixTitle, User, Department, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
@@ -51,7 +52,7 @@ interface ContactModalProps {
   departments?: Department[];
   ldapDomains?: LdapDomain[];
   onClose: () => void;
-  onSave: (contact: Contact) => void;
+  onSave: (contact: Contact) => Promise<void> | void;
   onDelete?: (id: number | string) => void;
   onToggleFavorite?: (id: number | string) => void;
   onInitiateCall?: (targetNumber: string, contact: Contact, title?: string) => void;
@@ -87,6 +88,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       : [];
 
   const [isEditing, setIsEditing] = useState(isCreateMode);
+  const [isSaving, setIsSaving] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -379,7 +381,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   // * Required: prefix_title, first_name, last_name
   // ** Personnel Code: Mandatory & strictly 5 digits for internal staff + Duplication Prevention
   // *** One of: at least one mobile OR at least one landline (phone or extension)
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e && e.preventDefault) {
       e.preventDefault();
     }
@@ -476,8 +478,15 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       is_public: isPublic,
     };
 
-    onSave(payload);
-    setIsEditing(false);
+    setIsSaving(true);
+    try {
+      await onSave(payload);
+      setIsEditing(false);
+    } catch (err: any) {
+      setValidationError(err?.message || 'خطا در ذخیره اطلاعات مخاطب');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const prefixText = prefixTitle === 'ms' ? 'خانم' : prefixTitle === 'location' ? '' : 'آقای';
@@ -1073,12 +1082,22 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                           <label className="block text-[10px] text-neutral-500">
                             عنوان خط (اختیاری)
                           </label>
-                          {isWirelessLine(landline.title) && (
+                          {isWirelessLine(landline.title) ? (
                             <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-sky-700 bg-sky-100 px-1 py-0.2 rounded border border-sky-300">
                               <Radio className="w-2.5 h-2.5 text-sky-600 animate-pulse" />
                               <span>بی‌سیم</span>
                             </span>
-                          )}
+                          ) : !landline.title ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateLandline(idx, 'title', 'بی‌سیم')}
+                              className="inline-flex items-center gap-1 text-[9px] text-neutral-400 hover:text-sky-700 cursor-pointer transition font-medium"
+                              title="درج خودکار عنوان بی‌سیم"
+                            >
+                              <Radio className="w-2.5 h-2.5 text-sky-600" />
+                              <span>درج سریع: بی‌سیم</span>
+                            </button>
+                          ) : null}
                         </div>
                         <div className="relative">
                           <input
@@ -1096,16 +1115,6 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                             <Radio className="w-3.5 h-3.5 text-sky-600 absolute left-2 top-2 pointer-events-none" />
                           )}
                         </div>
-                        {!landline.title && (
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateLandline(idx, 'title', 'بی‌سیم')}
-                            className="mt-0.5 inline-flex items-center gap-1 text-[9px] text-neutral-400 hover:text-sky-700 cursor-pointer transition"
-                          >
-                            <Radio className="w-2.5 h-2.5" />
-                            <span>درج سریع: بی‌سیم</span>
-                          </button>
-                        )}
                       </div>
 
                       <div className="sm:col-span-1 text-center pt-2 sm:pt-0">
@@ -1820,11 +1829,21 @@ export const ContactModal: React.FC<ContactModalProps> = ({
             {isEditing && (
               <button
                 type="button"
+                disabled={isSaving}
                 onClick={() => handleSubmit()}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-sm"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-sm"
               >
-                <Save className="w-3.5 h-3.5" />
-                <span>ذخیره اطلاعات</span>
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>در حال ذخیره...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5" />
+                    <span>ذخیره اطلاعات</span>
+                  </>
+                )}
               </button>
             )}
           </div>

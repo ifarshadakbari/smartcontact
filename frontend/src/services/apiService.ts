@@ -381,45 +381,114 @@ export const saveContactToApi = async (
     headers['Authorization'] = `Bearer ${config.token}`;
   }
 
-  // A contact is an update ONLY if it is an existing record with a real ID (e.g. numeric DB ID < 1000000000, not a client timestamp)
-  const isRealDbId =
-    contact.id &&
-    typeof contact.id === 'number' &&
-    contact.id > 0 &&
-    contact.id < 1000000000;
-  const isUpdate = isNew === undefined ? Boolean(isRealDbId) : !isNew && Boolean(isRealDbId);
+  // Determine if this is an update or create
+  const rawId = contact.id;
+  const numId = rawId !== undefined && rawId !== null ? Number(rawId) : NaN;
+  const hasNumericId = !isNaN(numId) && numId > 0;
+  
+  // It is an update if explicitly specified (isNew === false) or if it has a real DB ID (< 1,000,000,000)
+  const isUpdate = isNew !== undefined ? !isNew : Boolean(hasNumericId && numId < 1000000000);
+  const targetId = hasNumericId ? numId : contact.id;
 
   const targetUrl = isUpdate
-    ? `${baseUrl}${config.apiPrefix}/contacts/${contact.id}`
+    ? `${baseUrl}${config.apiPrefix}/contacts/${targetId}`
     : `${baseUrl}${config.apiPrefix}/contacts`;
   const method = isUpdate ? 'PUT' : 'POST';
 
-  const payload: any = {
-    ...contact,
-    mobiles: Array.isArray(contact.mobiles) ? contact.mobiles : [],
-    landlines: Array.isArray(contact.landlines) ? contact.landlines : [],
-  };
+  // Sanitize mobiles: array of non-empty strings
+  const cleanMobiles = Array.isArray(contact.mobiles)
+    ? contact.mobiles
+        .map((m) => (typeof m === 'string' ? m.trim() : String(m || '')))
+        .filter((m) => m !== '')
+    : [];
 
-  // When creating a new record, do not send the client-side temporary timestamp ID
-  if (!isUpdate) {
-    delete payload.id;
+  // Sanitize landlines: array of objects with valid phone or extension
+  const cleanLandlines = Array.isArray(contact.landlines)
+    ? contact.landlines
+        .filter((l) => l && (String(l.phone || '').trim() !== '' || String(l.extension || '').trim() !== ''))
+        .map((l, idx) => ({
+          id: String(l.id || idx + 1),
+          phone: String(l.phone || '').trim(),
+          extension: String(l.extension || '').trim(),
+          title: String(l.title || '').trim(),
+        }))
+    : [];
+
+  const isLocation = contact.prefix_title === 'location';
+  // Backend validation: accepts 'mr', 'ms', or nullable string. Null if not standard prefix
+  const prefixTitleVal =
+    contact.prefix_title === 'mr' || contact.prefix_title === 'ms'
+      ? contact.prefix_title
+      : null;
+
+  // Required name fields
+  const firstNameVal = (contact.first_name || '').trim();
+  const lastNameVal = isLocation
+    ? (contact.last_name?.trim() || '-')
+    : (contact.last_name?.trim() || '-');
+
+  // Clean email: must be valid email or null (never empty string "" which fails Laravel validation)
+  const rawEmail = (contact.email || '').trim();
+  const emailVal = rawEmail && rawEmail.includes('@') ? rawEmail : null;
+
+  // Description with location tag preservation
+  let descVal = (contact.description || '').trim();
+  if (isLocation && !descVal.includes('[PREFIX:LOCATION]')) {
+    descVal = descVal ? `${descVal} [PREFIX:LOCATION]` : '[PREFIX:LOCATION]';
+  } else if (!isLocation && descVal.includes('[PREFIX:LOCATION]')) {
+    descVal = descVal.replace('[PREFIX:LOCATION]', '').trim();
   }
 
-  // Ensure Location contact (بدون عنوان (مکانی)) passes backend validator
-  if (contact.prefix_title === 'location') {
-    if (!payload.last_name || !payload.last_name.trim()) {
-      payload.last_name = '-';
+  const payload: any = {
+    first_name: firstNameVal,
+    last_name: lastNameVal,
+    prefix_title: prefixTitleVal,
+    personnel_code: contact.personnel_code ? contact.personnel_code.trim() : null,
+    job_title: contact.job_title ? contact.job_title.trim() : null,
+    department: contact.department ? contact.department.trim() : null,
+    location: contact.location ? contact.location.trim() : null,
+    mobiles: cleanMobiles,
+    landlines: cleanLandlines,
+    email: emailVal,
+    description: descVal || null,
+    avatar: contact.avatar || null,
+    contact_type: contact.contact_type === 'external' ? 'external' : 'internal',
+    domain: contact.domain || contact.domain_name || null,
+    is_public: contact.is_public !== undefined ? Boolean(contact.is_public) : true,
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(targetUrl, {
+      method,
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (netErr: any) {
+    console.warn('Network error reaching backend API, preserving locally:', netErr);
+    // Return updated contact so local state and storage succeed
+    return contact;
+  }
+
+  // If 404 on PUT (contact was created locally or removed on server), fallback to POST
+  if (!res.ok && res.status === 404 && isUpdate) {
+    try {
+      const postUrl = `${baseUrl}${config.apiPrefix}/contacts`;
+      const postRes = await fetch(postUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (postRes.ok) {
+        res = postRes;
+      }
+    } catch (fallbackErr) {
+      console.warn('Fallback POST after 404 encountered error:', fallbackErr);
     }
   }
 
-  let res = await fetch(targetUrl, {
-    method,
-    headers,
-    body: JSON.stringify(payload),
-  });
-
-  // If server validation failed (422) because prefix_title was 'location' and server only allows mr/ms
-  if (!res.ok && res.status === 422 && contact.prefix_title === 'location') {
+  // If server validation failed (422) retry with minimal payload if needed
+  if (!res.ok && res.status === 422) {
     try {
       const errClone = res.clone();
       const errText = await errClone.text();
@@ -427,7 +496,6 @@ export const saveContactToApi = async (
         const retryPayload = {
           ...payload,
           prefix_title: null,
-          description: payload.description ? `${payload.description} [PREFIX:LOCATION]` : '[PREFIX:LOCATION]',
         };
         const retryRes = await fetch(targetUrl, {
           method,
@@ -439,7 +507,7 @@ export const saveContactToApi = async (
         }
       }
     } catch (e) {
-      console.warn('Prefix retry check encountered exception:', e);
+      console.warn('422 retry check encountered exception:', e);
     }
   }
 

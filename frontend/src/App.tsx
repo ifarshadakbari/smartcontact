@@ -484,12 +484,18 @@ export default function App() {
       : `${finalContact.first_name} ${finalContact.last_name}`.trim();
 
     if (exists) {
-      updated = contacts.map((c) => (String(c.id) === String(finalContact.id) ? finalContact : c));
+      updated = contacts.map((c) =>
+        String(c.id) === String(contactToSave.id) || String(c.id) === String(finalContact.id)
+          ? finalContact
+          : c
+      );
       showToast(`اطلاعات ${displayName} بروزرسانی شد.`);
-      if (selectedContact && String(selectedContact.id) === String(finalContact.id)) {
+      if (
+        selectedContact &&
+        (String(selectedContact.id) === String(contactToSave.id) ||
+          String(selectedContact.id) === String(finalContact.id))
+      ) {
         setSelectedContact(finalContact);
-      } else {
-        setSelectedContact(null);
       }
     } else {
       updated = [finalContact, ...contacts];

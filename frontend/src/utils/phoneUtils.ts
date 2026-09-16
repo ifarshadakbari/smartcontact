@@ -1,4 +1,4 @@
-import { Contact, User, LdapDomain } from '../types';
+import { Contact, User, LdapDomain, Department } from '../types';
 
 /**
  * Returns the Persian display name for a contact's domain.
@@ -74,10 +74,18 @@ export function matchContactToDomain(contact: Contact, domain: LdapDomain): bool
 /**
  * Detects if a landline entry title refers to a wireless line (بی سیم / بیسیم):
  * Checks for "بی سیم", "بیسیم", "بی‌سیم", "wireless", etc.
+ * Supports string, array of landlines, or single landline object safely.
  */
-export function isWirelessLine(title?: string): boolean {
-  if (!title) return false;
-  const clean = title
+export function isWirelessLine(titleOrLandlines?: any): boolean {
+  if (!titleOrLandlines) return false;
+  if (Array.isArray(titleOrLandlines)) {
+    return titleOrLandlines.some((l) => l && isWirelessLine(l.title));
+  }
+  if (typeof titleOrLandlines === 'object' && titleOrLandlines !== null) {
+    return isWirelessLine(titleOrLandlines.title);
+  }
+  if (typeof titleOrLandlines !== 'string') return false;
+  const clean = titleOrLandlines
     .trim()
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .replace(/\s+/g, '')

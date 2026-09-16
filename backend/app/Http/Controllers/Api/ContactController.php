@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class ContactController extends Controller
 {
@@ -45,6 +47,9 @@ class ContactController extends Controller
         $userFavIds = $user ? $user->favoriteContacts()->pluck('contacts.id')->toArray() : [];
 
         // افزودن وضعیت اختصاصی is_favorite به هر مخاطب برای این کاربر
+        if (Schema::hasColumn('contacts', 'display_order')) {
+            $query->orderBy('display_order', 'asc');
+        }
         $contacts = $query->orderBy('id', 'desc')->get()->map(function ($contact) use ($userFavIds) {
             $contact->is_favorite = in_array($contact->id, $userFavIds);
             return $contact;
@@ -63,14 +68,14 @@ class ContactController extends Controller
         $validated = $request->validate([
             'first_name'       => 'required|string|max:100',
             'last_name'        => 'required|string|max:100',
-            'prefix_title'     => 'nullable|string|in:mr,ms',
+            'prefix_title'     => 'nullable|string|max:50',
             'personnel_code'   => 'nullable|string|max:50',
             'job_title'        => 'nullable|string|max:150',
             'department'       => 'nullable|string|max:150',
             'location'         => 'nullable|string|max:150',
             'mobiles'          => 'nullable|array',
             'landlines'        => 'nullable|array',
-            'email'            => 'nullable|email|max:150',
+            'email'            => 'nullable|string|max:150',
             'description'      => 'nullable|string',
             'avatar'           => 'nullable|string',
             'contact_type'     => 'nullable|string|in:internal,external',
@@ -80,7 +85,6 @@ class ContactController extends Controller
 
         if ($user) {
             $validated['created_by_user_id'] = $user->id;
-            $validated['created_by_user_name'] = $user->name ?? $user->username ?? 'کاربر سیستم';
         }
 
         $contact = Contact::create($validated);
@@ -91,6 +95,30 @@ class ContactController extends Controller
             'message' => 'مخاطب با موفقیت ذخیره شد.',
             'data'    => $contact,
         ], 201);
+    }
+
+    /**
+     * ذخیره ترتیب و چیدمان سفارشی مخاطبین
+     */
+    public function reorder(Request $request)
+    {
+        $orders = $request->input('orders', []);
+        if (is_array($orders)) {
+            foreach ($orders as $item) {
+                if (isset($item['id']) && isset($item['display_order'])) {
+                    if (Schema::hasColumn('contacts', 'display_order')) {
+                        DB::table('contacts')
+                            ->where('id', $item['id'])
+                            ->update(['display_order' => (int) $item['display_order']]);
+                    }
+                }
+            }
+        }
+
+        return response()->json([
+            'status'  => 'success',
+            'message' => 'ترتیب مخاطبین با موفقیت ذخیره شد.',
+        ]);
     }
 
     /**
@@ -123,14 +151,14 @@ class ContactController extends Controller
         $validated = $request->validate([
             'first_name'       => 'sometimes|required|string|max:100',
             'last_name'        => 'sometimes|required|string|max:100',
-            'prefix_title'     => 'nullable|string|in:mr,ms',
+            'prefix_title'     => 'nullable|string|max:50',
             'personnel_code'   => 'nullable|string|max:50',
             'job_title'        => 'nullable|string|max:150',
             'department'       => 'nullable|string|max:150',
             'location'         => 'nullable|string|max:150',
             'mobiles'          => 'nullable|array',
             'landlines'        => 'nullable|array',
-            'email'            => 'nullable|email|max:150',
+            'email'            => 'nullable|string|max:150',
             'description'      => 'nullable|string',
             'avatar'           => 'nullable|string',
             'contact_type'     => 'nullable|string|in:internal,external',

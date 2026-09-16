@@ -36,6 +36,7 @@ export interface Contact {
   contact_type?: 'internal' | 'external'; // افراد درون سازمان یا برون‌سازمانی (شرکت‌ها/پیمانکاران)
   domain_id?: string; // شناسه دامین مربوطه (برای داخلی‌های سازمان)
   domain_name?: string; // نام دامین سازمانی
+  domain?: string; // فیلد دامین سازمانی سازگار با بک‌اند
   company_name?: string; // نام شرکت / سازمان طرف قرارداد (برای مخاطبان برون‌سازمانی)
   has_ldap_account?: boolean; // آیا حساب کاربری AD دارد یا صرفاً دارای تلفن و داخلی رومیزی است (نگهبانی، خدمات، انبار)
   ldap_username?: string; // نام کاربری در اکتیودایرکتوری

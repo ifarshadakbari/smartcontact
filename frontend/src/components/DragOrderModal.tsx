@@ -80,7 +80,9 @@ export const DragOrderModal: React.FC<DragOrderModalProps> = ({
       const fullName = [item.first_name, item.last_name].filter(Boolean).join(' ').toLowerCase();
       const dept = (item.department || '').toLowerCase();
       const job = (item.job_title || '').toLowerCase();
-      const phone = item.landlines?.map((l) => `${l.phone} ${l.extension}`).join(' ') || '';
+      const phone = Array.isArray(item.landlines)
+        ? item.landlines.map((l) => `${l?.phone || ''} ${l?.extension || ''}`).join(' ')
+        : '';
       return fullName.includes(q) || dept.includes(q) || job.includes(q) || phone.includes(q);
     });
 
@@ -357,7 +359,7 @@ export const DragOrderModal: React.FC<DragOrderModalProps> = ({
                       <div className="flex items-center gap-3 text-[11px] text-neutral-500 mt-0.5 truncate">
                         {item.job_title && <span>{item.job_title}</span>}
                         {item.department && <span>• {item.department}</span>}
-                        {item.landlines && item.landlines.length > 0 && (
+                        {Array.isArray(item.landlines) && item.landlines.length > 0 && item.landlines[0] && (
                           <span className="font-mono text-[10px] text-blue-600 dir-ltr">
                             {item.landlines[0].extension ? `Ext: ${item.landlines[0].extension}` : item.landlines[0].phone}
                           </span>

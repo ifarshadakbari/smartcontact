@@ -27,6 +27,7 @@ class Contact extends Model
         'is_favorite',
         'created_by_user_id',
         'is_public',
+        'display_order',
     ];
 
     // تبدیل خودکار JSON به آرایه در PHP و بالعکس
@@ -35,6 +36,7 @@ class Contact extends Model
         'landlines' => 'array',
         'is_favorite' => 'boolean',
         'is_public' => 'boolean',
+        'display_order' => 'integer',
     ];
 
     public function favoritedByUsers()
