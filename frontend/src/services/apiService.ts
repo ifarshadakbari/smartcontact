@@ -1,10 +1,12 @@
 import { Contact, LaravelConfig, User, LdapDomain, Department } from '../types';
 
-const STORAGE_KEY_CONTACTS = 'enterprise_phonebook_contacts_v10';
-const STORAGE_KEY_CONFIG = 'enterprise_phonebook_laravel_config_v10';
-const STORAGE_KEY_AUTH = 'enterprise_phonebook_auth_user_v10';
-const STORAGE_KEY_DOMAINS = 'enterprise_phonebook_ldap_domains_v10';
-const STORAGE_KEY_DEPARTMENTS = 'enterprise_phonebook_departments_v10';
+const STORAGE_VERSION = 'v11';
+const STORAGE_KEY_CONFIG = 'enterprise_phonebook_laravel_config_${STORAGE_VERSION}';
+const STORAGE_KEY_CONTACTS = 'enterprise_phonebook_contacts_${STORAGE_VERSION}';
+const STORAGE_KEY_AUTH = 'enterprise_phonebook_auth_user_${STORAGE_VERSION}';
+const STORAGE_KEY_DOMAINS = 'enterprise_phonebook_ldap_domains_${STORAGE_VERSION}';
+const STORAGE_KEY_DEPARTMENTS = 'enterprise_phonebook_departments_${STORAGE_VERSION}';
+
 
 export const getSavedLaravelConfig = (): LaravelConfig => {
   try {
@@ -16,8 +18,8 @@ export const getSavedLaravelConfig = (): LaravelConfig => {
 
   // Exact default backend URL configured for the enterprise database connection
   return {
-    baseUrl: 'https://ip.parszarasa.local/webapp/api/public/index.php',
-    apiPrefix: '/api',
+    baseUrl: '/webapp/smartcontact/api',
+    apiPrefix: '',
     token: '',
     status: 'connected',
   };
