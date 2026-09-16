@@ -118,7 +118,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
       }
     } catch (err: any) {
       setStage('error');
-      setErrorMessage(err.message || 'خطا در برقراری ارتباط با سرور ایزابل');
+      setErrorMessage(err.message || 'خطا در برقراری ارتباط با سرور VoIP');
     }
   };
 

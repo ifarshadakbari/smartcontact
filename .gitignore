@@ -38,3 +38,6 @@ frontend/pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# AI Studio sandbox root proxy
+/package.json

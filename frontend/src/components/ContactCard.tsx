@@ -261,7 +261,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                           }`}
                           title={
                             currentUser
-                              ? 'تماس مستقیم با این داخلی از طریق تلفن رومیزی شما'
+                              ? 'تماس مستقیم با این داخلی از طریق IP Phone شما'
                               : 'برای تماس خودکار VoIP، وارد شوید'
                           }
                         >
@@ -282,7 +282,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                       className="p-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 transition cursor-pointer text-xs"
                       title={
                         currentUser
-                          ? 'شماره‌گیری این خط تلفن از روی IP Phone شما (ایزابل VoIP)'
+                          ? 'تماس مستقیم با این خط تلفن از روی IP Phone شما'
                           : 'برای تماس خودکار VoIP، وارد شوید'
                       }
                     >
