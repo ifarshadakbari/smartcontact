@@ -15,20 +15,20 @@ export function getDomainDisplayName(
 
   // 1. Match by domain_id
   if (contact.domain_id) {
-    const found = domainList.find((d) => d.id === contact.domain_id);
+    const found = domainList.find((d) => String(d.id) === String(contact.domain_id));
     if (found) {
       return found.display_name || found.name;
     }
   }
 
   // 2. Match by domain_name
-  if (contact.domain_name) {
-    const cleanContactDomain = contact.domain_name.trim().toLowerCase();
+  const cDom = (contact.domain || contact.domain_name || '').trim().toLowerCase();
+  if (cDom) {
     const found = domainList.find(
       (d) =>
-        d.name.toLowerCase() === cleanContactDomain ||
-        d.name.toLowerCase().includes(cleanContactDomain) ||
-        cleanContactDomain.includes(d.name.toLowerCase())
+        (d.name && d.name.toLowerCase() === cDom) ||
+        (d.name && (d.name.toLowerCase().includes(cDom) || cDom.includes(d.name.toLowerCase()))) ||
+        (d.display_name && (d.display_name.toLowerCase().includes(cDom) || cDom.includes(d.display_name.toLowerCase())))
     );
     if (found) {
       return found.display_name || found.name;
@@ -41,6 +41,101 @@ export function getDomainDisplayName(
   }
 
   return domainList[0]?.display_name || domainList[0]?.name || 'دامین پیش‌فرض';
+}
+
+/**
+ * Checks if a contact belongs to a specific LDAP Domain:
+ * Checks domain_id, domain name, or display name with fallback.
+ */
+export function matchContactToDomain(contact: Contact, domain: LdapDomain): boolean {
+  if (contact.contact_type === 'external') return false;
+  if (contact.domain_id && String(contact.domain_id) === String(domain.id)) return true;
+
+  const domName = (domain.name || '').trim().toLowerCase();
+  const domDisplay = (domain.display_name || '').trim().toLowerCase();
+  const cDomain = (contact.domain || contact.domain_name || '').trim().toLowerCase();
+
+  if (cDomain && domName) {
+    if (cDomain === domName || cDomain.includes(domName) || domName.includes(cDomain)) return true;
+  }
+  if (cDomain && domDisplay) {
+    if (cDomain.includes(domDisplay) || domDisplay.includes(cDomain)) return true;
+  }
+  if (contact.domain_id && domName && contact.domain_id.toLowerCase() === domName) return true;
+
+  // If contact has no explicit domain and domain is default
+  if (!contact.domain_id && !contact.domain && !contact.domain_name && domain.is_default) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detects if a landline entry title refers to a wireless line (بی سیم / بیسیم):
+ * Checks for "بی سیم", "بیسیم", "بی‌سیم", "wireless", etc.
+ */
+export function isWirelessLine(title?: string): boolean {
+  if (!title) return false;
+  const clean = title
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  return (
+    clean === 'بیسیم' ||
+    clean.includes('بیسیم') ||
+    clean === 'wireless' ||
+    clean === 'radio'
+  );
+}
+
+/**
+ * Normalizes organizational department name to detect duplicates
+ * (e.g. "مرکزطراحی مهندسی" vs "مرکز طراحی مهندسی" vs "مرکز‌طراحی مهندسی")
+ */
+export function normalizeDeptName(name: string): string {
+  if (!name) return '';
+  return name
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\u064A\u0649]/g, 'ی')
+    .replace(/[\u0643]/g, 'ک')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+/**
+ * Deduplicates departments list, merging variants like "مرکزطراحی مهندسی" into "مرکز طراحی مهندسی"
+ */
+export function deduplicateDepartments(departments: Department[]): Department[] {
+  const seen = new Map<string, Department>();
+
+  for (const d of departments) {
+    if (!d || !d.name) continue;
+    if (d.id === 'all') {
+      seen.set('all', d);
+      continue;
+    }
+
+    const key = normalizeDeptName(d.name);
+    if (!seen.has(key)) {
+      let cleanName = d.name.trim();
+      // Fix known concatenated Persian phrasing
+      if (cleanName.includes('مرکزطراحی')) {
+        cleanName = cleanName.replace('مرکزطراحی', 'مرکز طراحی');
+      }
+      seen.set(key, { ...d, name: cleanName });
+    } else {
+      // If the duplicate has space, prefer the name with space
+      const existing = seen.get(key)!;
+      if (!existing.name.includes(' ') && d.name.includes(' ')) {
+        seen.set(key, { ...existing, name: d.name.trim() });
+      }
+    }
+  }
+
+  return Array.from(seen.values());
 }
 
 /**

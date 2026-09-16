@@ -25,10 +25,20 @@ import {
   AlertCircle,
   BookmarkCheck,
   Sparkles,
+  Radio,
 } from 'lucide-react';
 import { Contact, LandlineEntry, PrefixTitle, User, Department, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
-import { getVisibleMobiles, normalizePhoneNumber, getDomainDisplayName, formatIranianMobile, isValidIranianMobile, normalizeSearchText } from '../utils/phoneUtils';
+import {
+  getVisibleMobiles,
+  normalizePhoneNumber,
+  getDomainDisplayName,
+  formatIranianMobile,
+  isValidIranianMobile,
+  normalizeSearchText,
+  isWirelessLine,
+  deduplicateDepartments,
+} from '../utils/phoneUtils';
 
 interface ContactModalProps {
   contact: Contact | null;
@@ -73,7 +83,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
   const effectiveDepartments =
     departments && departments.length > 0
-      ? departments.filter((d) => d.id !== 'all')
+      ? deduplicateDepartments(departments.filter((d) => d.id !== 'all'))
       : [];
 
   const [isEditing, setIsEditing] = useState(isCreateMode);
@@ -129,7 +139,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
       setPrefixTitle(contact.prefix_title || 'mr');
       setFirstName(contact.first_name || '');
-      setLastName(contact.last_name || '');
+      const initialLastName = (contact.prefix_title === 'location' && contact.last_name === '-') ? '' : (contact.last_name || '');
+      setLastName(initialLastName);
       setJobTitle(contact.job_title || '');
       setDepartment(contact.department || '');
       setLocation(contact.location || '');
@@ -448,7 +459,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       personnel_code: contactType === 'internal' ? cleanPersonnelCode : (cleanPersonnelCode || undefined),
       prefix_title: prefixTitle,
       first_name: firstName.trim(),
-      last_name: lastName.trim(),
+      last_name: prefixTitle === 'location' ? (lastName.trim() || '-') : lastName.trim(),
       job_title: jobTitle.trim() || undefined,
       department: department || 'سایر',
       location: location.trim() || undefined,
@@ -1058,16 +1069,43 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                       </div>
 
                       <div className="sm:col-span-3">
-                        <label className="block text-[10px] text-neutral-500 mb-0.5">
-                          عنوان خط (اختیاری)
-                        </label>
-                        <input
-                          type="text"
-                          value={landline.title || ''}
-                          onChange={(e) => handleUpdateLandline(idx, 'title', e.target.value)}
-                          placeholder="عنوان خط یا میز کاری"
-                          className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs text-neutral-700 focus:outline-none focus:ring-1 focus:ring-blue-600"
-                        />
+                        <div className="flex items-center justify-between mb-0.5">
+                          <label className="block text-[10px] text-neutral-500">
+                            عنوان خط (اختیاری)
+                          </label>
+                          {isWirelessLine(landline.title) && (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-sky-700 bg-sky-100 px-1 py-0.2 rounded border border-sky-300">
+                              <Radio className="w-2.5 h-2.5 text-sky-600 animate-pulse" />
+                              <span>بی‌سیم</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={landline.title || ''}
+                            onChange={(e) => handleUpdateLandline(idx, 'title', e.target.value)}
+                            placeholder="مثال: بی‌سیم، میز کاری"
+                            className={`w-full px-2.5 py-1.5 border rounded text-xs text-neutral-700 focus:outline-none focus:ring-1 focus:ring-blue-600 ${
+                              isWirelessLine(landline.title)
+                                ? 'border-sky-300 bg-sky-50/40 text-sky-900 pl-7'
+                                : 'border-neutral-300'
+                            }`}
+                          />
+                          {isWirelessLine(landline.title) && (
+                            <Radio className="w-3.5 h-3.5 text-sky-600 absolute left-2 top-2 pointer-events-none" />
+                          )}
+                        </div>
+                        {!landline.title && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateLandline(idx, 'title', 'بی‌سیم')}
+                            className="mt-0.5 inline-flex items-center gap-1 text-[9px] text-neutral-400 hover:text-sky-700 cursor-pointer transition"
+                          >
+                            <Radio className="w-2.5 h-2.5" />
+                            <span>درج سریع: بی‌سیم</span>
+                          </button>
+                        )}
                       </div>
 
                       <div className="sm:col-span-1 text-center pt-2 sm:pt-0">

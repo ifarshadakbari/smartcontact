@@ -13,6 +13,7 @@ import {
   ChevronDown,
   CheckCircle2,
   Settings,
+  ArrowUpDown,
 } from 'lucide-react';
 import { User, LaravelConfig, LdapDomain } from '../types';
 
@@ -33,6 +34,7 @@ interface NavbarProps {
   isBlfOpen?: boolean;
   onToggleBlf?: () => void;
   onOpenBlfConfig?: () => void;
+  onOpenDragOrderModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -52,6 +54,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   isBlfOpen = false,
   onToggleBlf,
   onOpenBlfConfig,
+  onOpenDragOrderModal,
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -335,6 +338,31 @@ export const Navbar: React.FC<NavbarProps> = ({
                             </div>
                             <span className="bg-neutral-200 text-neutral-700 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
                               {departmentsCount}
+                            </span>
+                          </button>
+                        )}
+
+                        {/* Reorder Contacts / Drag & Drop Layout Modal */}
+                        {onOpenDragOrderModal && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onOpenDragOrderModal();
+                              setIsDropdownOpen(false);
+                            }}
+                            className="w-full px-4 py-2 text-right flex items-center justify-between hover:bg-neutral-100 transition cursor-pointer text-xs group"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center shrink-0 border border-purple-200 group-hover:bg-purple-100">
+                                <ArrowUpDown className="w-4 h-4 text-purple-700" />
+                              </div>
+                              <div>
+                                <div className="font-semibold text-neutral-900">مدیریت چیدمان مخاطبین</div>
+                                <div className="text-[10px] text-neutral-500">ترتیب سفارشی کشیدن و رها کردن (Drag & Drop)</div>
+                              </div>
+                            </div>
+                            <span className="bg-purple-600 text-white text-[10px] px-2 py-0.5 rounded-full font-medium">
+                              سفارشی
                             </span>
                           </button>
                         )}

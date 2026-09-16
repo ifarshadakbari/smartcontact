@@ -39,6 +39,7 @@ export interface Contact {
   company_name?: string; // نام شرکت / سازمان طرف قرارداد (برای مخاطبان برون‌سازمانی)
   has_ldap_account?: boolean; // آیا حساب کاربری AD دارد یا صرفاً دارای تلفن و داخلی رومیزی است (نگهبانی، خدمات، انبار)
   ldap_username?: string; // نام کاربری در اکتیودایرکتوری
+  display_order?: number; // ترتیب نمایش سفارشی ادمین (اولویت چیدمان دستی)
 }
 
 export interface Department {

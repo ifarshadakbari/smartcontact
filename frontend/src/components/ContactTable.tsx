@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Copy, Check, Star, ArrowUpRight, Phone, Smartphone, MapPin, UserCheck, Globe, PhoneCall, Network, Building2, Lock, Shield } from 'lucide-react';
+import { Copy, Check, Star, ArrowUpRight, Phone, Smartphone, MapPin, UserCheck, Globe, PhoneCall, Network, Building2, Lock, Shield, Radio, GripVertical } from 'lucide-react';
 import { Contact, User, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
-import { getVisibleMobiles, getDomainDisplayName } from '../utils/phoneUtils';
+import { getVisibleMobiles, getDomainDisplayName, isWirelessLine } from '../utils/phoneUtils';
 
 interface ContactTableProps {
   contacts: Contact[];
@@ -13,6 +13,8 @@ interface ContactTableProps {
   onInitiateCall?: (targetNumber: string, contact: Contact, title?: string) => void;
   onRequireLoginForCall?: () => void;
   onFilterByCompany?: (companyName: string) => void;
+  onReorder?: (reorderedContacts: Contact[]) => void;
+  isCustomOrderActive?: boolean;
 }
 
 export const ContactTable: React.FC<ContactTableProps> = ({
@@ -24,8 +26,12 @@ export const ContactTable: React.FC<ContactTableProps> = ({
   onInitiateCall,
   onRequireLoginForCall,
   onFilterByCompany,
+  onReorder,
+  isCustomOrderActive,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const handleCopy = (e: React.MouseEvent, text: string, key: string) => {
     e.stopPropagation();
@@ -46,6 +52,47 @@ export const ContactTable: React.FC<ContactTableProps> = ({
   };
 
   const isAdmin = currentUser ? currentUser.role === 'admin' : false;
+  const canDrag = isAdmin && Boolean(onReorder) && Boolean(isCustomOrderActive);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (!canDrag) return;
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    if (!canDrag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    if (!canDrag) return;
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const updated = [...contacts];
+    const [moved] = updated.splice(draggedIndex, 1);
+    updated.splice(targetIndex, 0, moved);
+
+    // Update display_order
+    const withNewOrder = updated.map((c, idx) => ({
+      ...c,
+      display_order: idx + 1,
+    }));
+
+    onReorder?.(withNewOrder);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
 
   return (
     <div className="bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-xs font-sans">
@@ -53,6 +100,7 @@ export const ContactTable: React.FC<ContactTableProps> = ({
         <table className="w-full text-right border-collapse text-xs">
           <thead>
             <tr className="bg-neutral-50 border-b border-neutral-200 text-neutral-600 font-semibold">
+              {canDrag && <th className="py-3 px-2 w-8 text-center" title="جابجایی ترتیب"></th>}
               <th className="py-3 px-3 w-10 text-center"></th>
               <th className="py-3 px-4">مشخصات شخص / دامین یا شرکت</th>
               <th className="py-3 px-3">وضعیت دسترسی</th>
@@ -66,17 +114,46 @@ export const ContactTable: React.FC<ContactTableProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-neutral-100">
-            {contacts.map((contact) => {
+            {contacts.map((contact, index) => {
               const prefixText = contact.prefix_title === 'ms' ? 'خانم' : contact.prefix_title === 'location' ? '' : 'آقای';
+              const cleanLastName = contact.prefix_title === 'location' && contact.last_name === '-' ? '' : (contact.last_name || '');
+              const fullName = [contact.first_name, cleanLastName].filter(Boolean).join(' ');
               const domainDisplayName = getDomainDisplayName(contact, ldapDomains);
               const isOwner = currentUser ? contact.created_by_user_id === currentUser.id : false;
+              const isDragging = draggedIndex === index;
+              const isOver = dragOverIndex === index;
 
               return (
                 <tr
                   key={contact.id}
                   onClick={() => onSelect(contact)}
-                  className="hover:bg-neutral-50 transition duration-150 cursor-pointer group"
+                  draggable={canDrag}
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDragEnd={() => {
+                    setDraggedIndex(null);
+                    setDragOverIndex(null);
+                  }}
+                  onDrop={(e) => handleDrop(e, index)}
+                  className={`transition duration-150 cursor-pointer group ${
+                    isDragging
+                      ? 'opacity-40 bg-blue-50'
+                      : isOver
+                      ? 'bg-blue-50/70 border-t-2 border-blue-600'
+                      : 'hover:bg-neutral-50'
+                  }`}
                 >
+                  {/* Drag Handle (Admin Only in Custom Order mode) */}
+                  {canDrag && (
+                    <td
+                      className="py-3 px-2 text-center text-neutral-300 hover:text-blue-600 cursor-grab active:cursor-grabbing"
+                      onClick={(e) => e.stopPropagation()}
+                      title="برای تغییر چیدمان بکشید و رها کنید"
+                    >
+                      <GripVertical className="w-4 h-4 mx-auto" />
+                    </td>
+                  )}
+
                   {/* Favorite */}
                   <td className="py-3 px-3 text-center">
                     <button
@@ -103,7 +180,7 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                       <Avatar
                         src={contact.avatar}
                         prefix={contact.prefix_title}
-                        name={`${contact.first_name} ${contact.last_name}`}
+                        name={fullName}
                         size="sm"
                       />
                       <div>
@@ -112,7 +189,7 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                             <span className="text-[11px] text-neutral-400">{prefixText}</span>
                           )}
                           <span className="font-bold text-neutral-900 group-hover:text-blue-600 transition">
-                            {contact.first_name} {contact.last_name}
+                            {fullName}
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
@@ -260,6 +337,22 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                 </button>
                               </div>
                             ) : null}
+
+                            {l.title && (
+                              <span
+                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${
+                                  isWirelessLine(l.title)
+                                    ? 'bg-sky-50 text-sky-700 border border-sky-200 font-semibold'
+                                    : 'text-neutral-500 bg-neutral-50 border border-neutral-200'
+                                }`}
+                              >
+                                {isWirelessLine(l.title) && <Radio className="w-3 h-3 text-sky-600 animate-pulse" />}
+                                <span>{l.title}</span>
+                                {isWirelessLine(l.title) && (
+                                  <span className="text-[8px] bg-sky-200/80 text-sky-800 px-0.5 rounded font-bold">بی‌سیم</span>
+                                )}
+                              </span>
+                            )}
 
                             {l.extension && (
                               <div className="inline-flex items-center gap-1">

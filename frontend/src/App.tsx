@@ -19,6 +19,13 @@ import {
   Users,
   Building2,
   Server,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import { Contact, User, LaravelConfig, ViewMode, LdapDomain, Department, ApiUsageStatus, UserBlfPermission, BlfExtensionInfo } from './types';
 import {
@@ -36,6 +43,7 @@ import {
   saveStoredDepartments,
   fetchDepartmentsFromApi,
   saveDepartmentsToApi,
+  saveContactsOrderToApi,
   fetchContactsFromApi,
   saveContactToApi,
   deleteContactFromApi,
@@ -55,7 +63,7 @@ import {
   calculateUsageStatus,
   recordApiCall,
 } from './services/rateLimitService';
-import { normalizeSearchText, normalizePhoneNumber } from './utils/phoneUtils';
+import { normalizeSearchText, normalizePhoneNumber, matchContactToDomain, deduplicateDepartments, isWirelessLine } from './utils/phoneUtils';
 import { Navbar } from './components/Navbar';
 import { LoginPage } from './components/LoginPage';
 import { ContactCard } from './components/ContactCard';
@@ -68,6 +76,7 @@ import { DepartmentModal } from './components/DepartmentModal';
 import { PrintView } from './components/PrintView';
 import { BlfSidePanel } from './components/BlfSidePanel';
 import { BlfConfigModal } from './components/BlfConfigModal';
+import { DragOrderModal } from './components/DragOrderModal';
 
 export default function App() {
   // Authentication State
@@ -92,7 +101,7 @@ export default function App() {
   }, []);
 
   // Departments State
-  const [departments, setDepartments] = useState<Department[]>(() => getStoredDepartments());
+  const [departments, setDepartments] = useState<Department[]>(() => deduplicateDepartments(getStoredDepartments()));
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
 
   // LDAP Domains State
@@ -135,6 +144,10 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState('all'); // 'all' | domain_id | 'external_all' | 'comp:NAME'
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'public'>('all');
+  const [sortBy, setSortBy] = useState<'custom' | 'name' | 'personnel_code' | 'department' | 'created_at'>('custom');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(24);
 
   // Modals & Panels
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -144,6 +157,7 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isLaravelConfigOpen, setIsLaravelConfigOpen] = useState(false);
   const [isPrintViewOpen, setIsPrintViewOpen] = useState(false);
+  const [isDragOrderModalOpen, setIsDragOrderModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [callTarget, setCallTarget] = useState<{ number: string; contact: Contact; title?: string } | null>(null);
 
@@ -195,13 +209,14 @@ export default function App() {
       .then((apiDepartments) => {
         if (!isMounted) return;
         if (Array.isArray(apiDepartments) && apiDepartments.length > 0) {
-          setDepartments(apiDepartments);
-          saveStoredDepartments(apiDepartments);
+          const cleanDepts = deduplicateDepartments(apiDepartments);
+          setDepartments(cleanDepts);
+          saveStoredDepartments(cleanDepts);
         }
       })
       .catch((err) => {
         console.warn('Could not fetch departments from live API (using cached):', err);
-        setDepartments((prev) => (prev && prev.length > 0 ? prev : getStoredDepartments()));
+        setDepartments((prev) => deduplicateDepartments(prev && prev.length > 0 ? prev : getStoredDepartments()));
       });
 
     return () => {
@@ -371,8 +386,9 @@ export default function App() {
         }
 
         if (Array.isArray(apiDepartments) && apiDepartments.length > 0) {
-          setDepartments(apiDepartments);
-          saveStoredDepartments(apiDepartments);
+          const cleanDepts = deduplicateDepartments(apiDepartments);
+          setDepartments(cleanDepts);
+          saveStoredDepartments(cleanDepts);
         }
 
         setIsLoadingApi(false);
@@ -398,10 +414,11 @@ export default function App() {
 
   // Save Departments (Admin)
   const handleSaveDepartments = (updatedDepartments: Department[]) => {
-    setDepartments(updatedDepartments);
-    saveStoredDepartments(updatedDepartments);
+    const clean = deduplicateDepartments(updatedDepartments);
+    setDepartments(clean);
+    saveStoredDepartments(clean);
 
-    saveDepartmentsToApi(updatedDepartments, laravelConfig)
+    saveDepartmentsToApi(clean, laravelConfig)
       .then(() => {
         showToast('واحدهای سازمانی با موفقیت در دیتابیس سرور همگام‌سازی شدند.');
       })
@@ -497,6 +514,37 @@ export default function App() {
     showToast('پرسنل مورد نظر از سامانه حذف شد.');
   };
 
+  // Reorder Contacts (Admin Drag & Drop)
+  const handleSaveContactsOrder = async (reorderedList: Contact[]) => {
+    // Map existing contacts with updated display_order
+    const orderMap = new Map<string, number>();
+    reorderedList.forEach((c, idx) => {
+      orderMap.set(String(c.id), typeof c.display_order === 'number' ? c.display_order : idx + 1);
+    });
+
+    const updated = contacts.map((c) => {
+      const order = orderMap.get(String(c.id));
+      return order !== undefined ? { ...c, display_order: order } : c;
+    });
+
+    // Sort full contacts locally according to updated order
+    updated.sort((a, b) => {
+      const orderA = typeof a.display_order === 'number' ? a.display_order : 999999;
+      const orderB = typeof b.display_order === 'number' ? b.display_order : 999999;
+      return orderA - orderB;
+    });
+
+    updateContacts(updated);
+    showToast('ترتیب و چیدمان جدید مخاطبین ذخیره شد.');
+
+    // Save orders to server
+    const orderPayload = reorderedList.map((c, idx) => ({
+      id: c.id,
+      display_order: typeof c.display_order === 'number' ? c.display_order : idx + 1,
+    }));
+    await saveContactsOrderToApi(orderPayload, laravelConfig);
+  };
+
   // ACCESSIBILITY LOGIC:
   // - Unauthenticated (guest): views all public organizational contacts across the 3 domains and external companies.
   // - Authenticated Staff: views public contacts + their own created contacts.
@@ -570,14 +618,12 @@ export default function App() {
           }
         } else {
           // It's an LDAP domain ID (e.g., 'corp', 'factory', 'holding')
-          if (contact.contact_type === 'external') return false;
-          if (contact.domain_id) {
-            if (contact.domain_id !== selectedCategory) return false;
-          } else if (contact.domain) {
-            const domObj = ldapDomains.find((d) => d.id === selectedCategory);
-            if (domObj && !(contact.domain || '').toLowerCase().includes((domObj.domain_name || '').toLowerCase())) {
-              return false;
-            }
+          const domObj = ldapDomains.find((d) => d.id === selectedCategory);
+          if (domObj) {
+            if (!matchContactToDomain(contact, domObj)) return false;
+          } else {
+            if (contact.contact_type === 'external') return false;
+            if (contact.domain_id && contact.domain_id !== selectedCategory) return false;
           }
         }
       }
@@ -625,6 +671,59 @@ export default function App() {
       return true;
     });
   }, [accessibleContacts, selectedCategory, ldapDomains, favoritesOnly, searchQuery, scopeFilter, currentUser]);
+
+  // Sorted Contacts Logic
+  const sortedContacts = useMemo(() => {
+    return [...filteredContacts].sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === 'custom') {
+        const orderA = typeof a.display_order === 'number' ? a.display_order : 999999;
+        const orderB = typeof b.display_order === 'number' ? b.display_order : 999999;
+        if (orderA !== orderB) {
+          comparison = orderA - orderB;
+        } else {
+          // Fallback to name if display_order is equal or unset
+          const cleanLastA = a.prefix_title === 'location' && a.last_name === '-' ? '' : (a.last_name || '');
+          const cleanLastB = b.prefix_title === 'location' && b.last_name === '-' ? '' : (b.last_name || '');
+          const nameA = [a.first_name, cleanLastA].filter(Boolean).join(' ').trim();
+          const nameB = [b.first_name, cleanLastB].filter(Boolean).join(' ').trim();
+          comparison = nameA.localeCompare(nameB, 'fa');
+        }
+      } else if (sortBy === 'name') {
+        const cleanLastA = a.prefix_title === 'location' && a.last_name === '-' ? '' : (a.last_name || '');
+        const cleanLastB = b.prefix_title === 'location' && b.last_name === '-' ? '' : (b.last_name || '');
+        const nameA = [a.first_name, cleanLastA].filter(Boolean).join(' ').trim();
+        const nameB = [b.first_name, cleanLastB].filter(Boolean).join(' ').trim();
+        comparison = nameA.localeCompare(nameB, 'fa');
+      } else if (sortBy === 'personnel_code') {
+        const codeA = (a.personnel_code || '').padStart(10, '0');
+        const codeB = (b.personnel_code || '').padStart(10, '0');
+        comparison = codeA.localeCompare(codeB);
+      } else if (sortBy === 'department') {
+        const deptA = (a.department || '').trim();
+        const deptB = (b.department || '').trim();
+        comparison = deptA.localeCompare(deptB, 'fa');
+      } else if (sortBy === 'created_at') {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        comparison = timeA - timeB;
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredContacts, sortBy, sortOrder]);
+
+  // Pagination calculation
+  const totalPages = Math.max(1, Math.ceil(sortedContacts.length / itemsPerPage));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedContacts = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * itemsPerPage;
+    return sortedContacts.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedContacts, safeCurrentPage, itemsPerPage]);
+
+  // Reset page to 1 when filters or search change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategory, favoritesOnly, scopeFilter, itemsPerPage]);
 
   // Count metrics based on accessible contacts
   const totalCount = accessibleContacts.length;
@@ -733,6 +832,7 @@ export default function App() {
         isBlfOpen={isBlfPanelOpen}
         onToggleBlf={() => setIsBlfPanelOpen(!isBlfPanelOpen)}
         onOpenBlfConfig={() => setIsBlfConfigModalOpen(true)}
+        onOpenDragOrderModal={currentUser?.role === 'admin' ? () => setIsDragOrderModalOpen(true) : undefined}
       />
 
       {/* Main Container */}
@@ -823,6 +923,19 @@ export default function App() {
                   </span>
                 )}
               </button>
+
+              {/* Admin Layout Reorder Quick Button */}
+              {currentUser?.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => setIsDragOrderModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 rounded-xl text-xs font-semibold border border-purple-200 transition cursor-pointer shadow-2xs"
+                  title="مدیریت چیدمان و اولویت نمایش مخاطبین با Drag & Drop"
+                >
+                  <ArrowUpDown className="w-3.5 h-3.5 text-purple-600" />
+                  <span>مدیریت چیدمان</span>
+                </button>
+              )}
 
               {/* Add New Contact Button */}
               <button
@@ -978,11 +1091,7 @@ export default function App() {
               .filter((d) => d.is_active)
               .map((dom) => {
                 const isSelected = selectedCategory === dom.id;
-                const count = accessibleContacts.filter(
-                  (c) =>
-                    c.contact_type !== 'external' &&
-                    (c.domain_id === dom.id || (!c.domain_id && (c.domain || '').toLowerCase().includes((dom.domain_name || '').toLowerCase())))
-                ).length;
+                const count = accessibleContacts.filter((c) => matchContactToDomain(c, dom)).length;
 
                 return (
                   <button
@@ -1110,47 +1219,105 @@ export default function App() {
           </div>
         )}
 
-        {/* Results Bar */}
-        <div className="flex items-center justify-between text-xs text-neutral-500 px-1">
-          <div>
-            نمایش <span className="font-bold text-neutral-900">{filteredContacts.length}</span> مورد
-            {currentUser?.role === 'admin' ? (
-              <span> (دسترسی ادمین: کلیه شماره‌های ثبت‌شده در پایگاه داده)</span>
-            ) : currentUser ? (
-              <span> (دسترسی پرسنل: منحصراً شماره‌های شخصی شما + شماره‌های عمومی)</span>
-            ) : (
-              <span> (حالت مهمان: شماره‌های عمومی ۳ دامین و شرکت‌های طرف قرارداد)</span>
-            )}
-            {selectedCategory !== 'all' && (
-              <span className="text-neutral-700 font-medium">
-                {' '}
-                — فیلتر فعال:{' '}
-                {selectedCategory === 'external_all'
-                  ? 'کلیه شرکت‌های برون‌سازمانی'
-                  : selectedCategory.startsWith('comp:')
-                  ? selectedCategory.replace('comp:', '')
-                  : ldapDomains.find((d) => d.id === selectedCategory)?.display_name ||
-                    ldapDomains.find((d) => d.id === selectedCategory)?.name ||
-                    selectedCategory}
-              </span>
+        {/* Results Bar with Sort and Pagination Controls */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs text-neutral-500 px-1 py-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div>
+              نمایش <span className="font-bold text-neutral-900">{filteredContacts.length}</span> مورد
+              {currentUser?.role === 'admin' ? (
+                <span> (دسترسی ادمین: کلیه شماره‌های ثبت‌شده در پایگاه داده)</span>
+              ) : currentUser ? (
+                <span> (دسترسی پرسنل: منحصراً شماره‌های شخصی شما + شماره‌های عمومی)</span>
+              ) : (
+                <span> (حالت مهمان: شماره‌های عمومی ۳ دامین و شرکت‌های طرف قرارداد)</span>
+              )}
+              {selectedCategory !== 'all' && (
+                <span className="text-neutral-700 font-medium">
+                  {' '}
+                  — فیلتر فعال:{' '}
+                  {selectedCategory === 'external_all'
+                    ? 'کلیه شرکت‌های برون‌سازمانی'
+                    : selectedCategory.startsWith('comp:')
+                    ? selectedCategory.replace('comp:', '')
+                    : ldapDomains.find((d) => d.id === selectedCategory)?.display_name ||
+                      ldapDomains.find((d) => d.id === selectedCategory)?.name ||
+                      selectedCategory}
+                </span>
+              )}
+            </div>
+
+            {(searchQuery || selectedCategory !== 'all' || favoritesOnly || scopeFilter !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedCategory('all');
+                  setFavoritesOnly(false);
+                  setScopeFilter('all');
+                }}
+                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 cursor-pointer font-medium mr-2"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>بازنشانی فیلترها</span>
+              </button>
             )}
           </div>
 
-          {(searchQuery || selectedCategory !== 'all' || favoritesOnly || scopeFilter !== 'all') && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedCategory('all');
-                setFavoritesOnly(false);
-                setScopeFilter('all');
-              }}
-              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 cursor-pointer font-medium"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>بازنشانی فیلترها</span>
-            </button>
-          )}
+          {/* Sorting & Page Size Controls */}
+          <div className="flex items-center gap-2.5 self-end md:self-auto shrink-0">
+            {/* Sort Field */}
+            <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg px-2 py-1 shadow-2xs">
+              <ArrowUpDown className="w-3 h-3 text-neutral-400 shrink-0" />
+              <span className="text-[11px] text-neutral-500">مرتب‌سازی:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="text-xs bg-transparent text-neutral-800 font-medium border-0 focus:outline-hidden cursor-pointer"
+              >
+                <option value="custom">ترتیب سفارشی (چیدمان)</option>
+                <option value="name">نام و نام خانوادگی</option>
+                <option value="personnel_code">کد پرسنلی</option>
+                <option value="department">واحد سازمانی</option>
+                <option value="created_at">زمان ثبت</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                title={sortOrder === 'asc' ? 'صعودی' : 'نزولی'}
+                className="p-1 hover:bg-neutral-100 rounded text-neutral-600 transition cursor-pointer"
+              >
+                {sortOrder === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+              </button>
+            </div>
+
+            {/* Quick Layout Reorder modal trigger if admin */}
+            {currentUser?.role === 'admin' && (
+              <button
+                type="button"
+                onClick={() => setIsDragOrderModalOpen(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
+                title="تغییر ترتیب نمایش و چیدمان مخاطبین با Drag & Drop"
+              >
+                <ArrowUpDown className="w-3 h-3" />
+                <span>ویرایش چیدمان</span>
+              </button>
+            )}
+
+            {/* Page Size */}
+            <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg px-2 py-1 shadow-2xs">
+              <span className="text-[11px] text-neutral-500">تعداد:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                className="text-xs bg-transparent text-neutral-800 font-medium border-0 focus:outline-hidden cursor-pointer"
+              >
+                <option value={12}>۱۲</option>
+                <option value={24}>۲۴</option>
+                <option value={48}>۴۸</option>
+                <option value={96}>۹۶</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Contacts Display: Card View or Table View */}
@@ -1216,7 +1383,7 @@ export default function App() {
           </div>
         ) : viewMode === 'card' ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredContacts.map((contact) => (
+            {paginatedContacts.map((contact) => (
               <ContactCard
                 key={contact.id}
                 contact={contact}
@@ -1231,14 +1398,104 @@ export default function App() {
           </div>
         ) : (
           <ContactTable
-            contacts={filteredContacts}
+            contacts={paginatedContacts}
             currentUser={currentUser}
             ldapDomains={ldapDomains}
             onSelect={(c) => setSelectedContact(c)}
             onToggleFavorite={handleToggleFavorite}
             onInitiateCall={handleInitiateCall}
             onFilterByCompany={handleFilterByCompany}
+            onReorder={currentUser?.role === 'admin' ? handleSaveContactsOrder : undefined}
+            isCustomOrderActive={sortBy === 'custom'}
           />
+        )}
+
+        {/* Pagination Bar */}
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white border border-neutral-200 rounded-xl px-4 py-3 shadow-2xs mt-4">
+            <div className="text-xs text-neutral-500">
+              نمایش صفحه <span className="font-bold text-neutral-800">{safeCurrentPage}</span> از{' '}
+              <span className="font-bold text-neutral-800">{totalPages}</span>{' '}
+              (مجموعاً <span className="font-semibold text-neutral-800">{sortedContacts.length}</span> مخاطب)
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={safeCurrentPage <= 1}
+                onClick={() => setCurrentPage(1)}
+                title="صفحه اول"
+                className="p-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-30 disabled:cursor-not-allowed text-neutral-600 transition cursor-pointer"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                disabled={safeCurrentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                title="صفحه قبل"
+                className="p-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-30 disabled:cursor-not-allowed text-neutral-600 transition cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              {/* Numbered Page Buttons */}
+              <div className="flex items-center gap-1 mx-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => {
+                    if (totalPages <= 7) return true;
+                    if (p === 1 || p === totalPages) return true;
+                    return Math.abs(p - safeCurrentPage) <= 1;
+                  })
+                  .reduce<(number | string)[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) {
+                      acc.push('...');
+                    }
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, idx) =>
+                    typeof p === 'number' ? (
+                      <button
+                        key={`page-${p}`}
+                        type="button"
+                        onClick={() => setCurrentPage(p)}
+                        className={`min-w-8 h-8 px-2 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                          p === safeCurrentPage
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'hover:bg-neutral-100 text-neutral-700 border border-neutral-200'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ) : (
+                      <span key={`dots-${idx}`} className="px-1 text-neutral-400 text-xs">
+                        ...
+                      </span>
+                    )
+                  )}
+              </div>
+
+              <button
+                type="button"
+                disabled={safeCurrentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                title="صفحه بعد"
+                className="p-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-30 disabled:cursor-not-allowed text-neutral-600 transition cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                disabled={safeCurrentPage >= totalPages}
+                onClick={() => setCurrentPage(totalPages)}
+                title="صفحه آخر"
+                className="p-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 disabled:opacity-30 disabled:cursor-not-allowed text-neutral-600 transition cursor-pointer"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         )}
       </main>
 
@@ -1397,6 +1654,17 @@ export default function App() {
           allContacts={contacts}
           ldapDomains={ldapDomains}
           currentUser={currentUser}
+        />
+      )}
+
+      {/* Admin Drag & Drop Layout / Reorder Contacts Modal */}
+      {isDragOrderModalOpen && currentUser?.role === 'admin' && (
+        <DragOrderModal
+          isOpen={isDragOrderModalOpen}
+          onClose={() => setIsDragOrderModalOpen(false)}
+          contacts={contacts}
+          ldapDomains={ldapDomains}
+          onSaveOrder={handleSaveContactsOrder}
         />
       )}
 

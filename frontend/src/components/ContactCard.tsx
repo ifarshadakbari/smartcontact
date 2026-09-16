@@ -16,10 +16,11 @@ import {
   Briefcase,
   Lock,
   Shield,
+  Radio,
 } from 'lucide-react';
 import { Contact, User, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
-import { getVisibleMobiles, getDomainDisplayName } from '../utils/phoneUtils';
+import { getVisibleMobiles, getDomainDisplayName, isWirelessLine } from '../utils/phoneUtils';
 
 interface ContactCardProps {
   contact: Contact;
@@ -65,6 +66,8 @@ export const ContactCard: React.FC<ContactCardProps> = ({
   };
 
   const prefixText = contact.prefix_title === 'ms' ? 'خانم' : contact.prefix_title === 'location' ? '' : 'آقای';
+  const cleanLastName = contact.prefix_title === 'location' && contact.last_name === '-' ? '' : (contact.last_name || '');
+  const fullName = [contact.first_name, cleanLastName].filter(Boolean).join(' ');
   const domainDisplayName = getDomainDisplayName(contact, ldapDomains);
   const isOwner = currentUser ? contact.created_by_user_id === currentUser.id : false;
   const isAdmin = currentUser ? currentUser.role === 'admin' : false;
@@ -82,7 +85,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
             <Avatar
               src={contact.avatar}
               prefix={contact.prefix_title}
-              name={`${contact.first_name} ${contact.last_name}`}
+              name={fullName}
               size="md"
             />
             <div>
@@ -93,7 +96,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                   </span>
                 )}
                 <h3 className="text-sm font-bold text-neutral-900 leading-tight">
-                  {contact.first_name} {contact.last_name}
+                  {fullName}
                 </h3>
               </div>
               {contact.job_title && (
@@ -203,9 +206,17 @@ export const ContactCard: React.FC<ContactCardProps> = ({
               >
                 <div>
                   {item.title && (
-                    <span className="text-[10px] text-neutral-400 block mb-0.5">
-                      {item.title}
-                    </span>
+                    <div className="flex items-center gap-1 text-[10px] mb-1">
+                      {isWirelessLine(item.title) ? (
+                        <span className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 font-medium">
+                          <Radio className="w-3 h-3 text-sky-600 animate-pulse" />
+                          <span>{item.title}</span>
+                          <span className="text-[9px] bg-sky-200/80 text-sky-800 px-1 rounded font-bold">بی‌سیم</span>
+                        </span>
+                      ) : (
+                        <span className="text-neutral-500 font-medium">{item.title}</span>
+                      )}
+                    </div>
                   )}
                   {/* Fixed Phone with Large Blue Style - Only if phone is registered */}
                   {item.phone && (

@@ -14,6 +14,7 @@ import {
   Database,
 } from 'lucide-react';
 import { Department, Contact, LaravelConfig, LdapDomain } from '../types';
+import { deduplicateDepartments, normalizeDeptName } from '../utils/phoneUtils';
 
 interface DepartmentModalProps {
   isOpen: boolean;
@@ -45,8 +46,8 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Real departments (excluding the synthetic 'all' item)
-  const realDepartments = departments.filter((d) => d.id !== 'all');
+  // Real departments (excluding the synthetic 'all' item and deduplicated)
+  const realDepartments = deduplicateDepartments(departments.filter((d) => d.id !== 'all'));
 
   const filteredList = realDepartments.filter((d) =>
     d.name.toLowerCase().includes(searchFilter.trim().toLowerCase()) ||
@@ -54,9 +55,10 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
     (d.domain_name && d.domain_name.toLowerCase().includes(searchFilter.trim().toLowerCase()))
   );
 
-  // Count contacts in a department
+  // Count contacts in a department (with normalized name matching)
   const getContactCount = (deptName: string) => {
-    return contacts.filter((c) => c.department === deptName).length;
+    const norm = normalizeDeptName(deptName);
+    return contacts.filter((c) => normalizeDeptName(c.department) === norm).length;
   };
 
   const handleStartAdd = () => {
@@ -95,9 +97,9 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
       return;
     }
 
-    // Check duplicate name
+    // Check duplicate name using normalized comparison
     const isDuplicate = realDepartments.some(
-      (d) => d.name.toLowerCase() === trimmedName.toLowerCase() && d.id !== editingId
+      (d) => normalizeDeptName(d.name) === normalizeDeptName(trimmedName) && d.id !== editingId
     );
     if (isDuplicate) {
       setErrorMsg('واحد سازمانی با این نام از قبل وجود دارد.');

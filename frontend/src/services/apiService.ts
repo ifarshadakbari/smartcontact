@@ -325,28 +325,43 @@ export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Conta
   }
   const json = await res.json();
   const rawList = Array.isArray(json) ? json : (json.data || []);
-  return rawList.map((item: any) => ({
-    id: item.id,
-    personnel_code: item.personnel_code,
-    prefix_title: item.prefix_title || 'mr',
-    first_name: item.first_name || '',
-    last_name: item.last_name || '',
-    job_title: item.job_title || '',
-    department: item.department || '',
-    location: item.location || '',
-    mobiles: Array.isArray(item.mobiles) ? item.mobiles : [],
-    landlines: Array.isArray(item.landlines) ? item.landlines : [],
-    email: item.email || '',
-    description: item.description || '',
-    avatar: item.avatar || '',
-    contact_type: item.contact_type || 'internal',
-    domain: item.domain || '',
-    is_favorite: Boolean(item.is_favorite),
-    created_by_user_id: item.created_by_user_id,
-    is_public: item.is_public !== undefined ? Boolean(item.is_public) : true,
-    created_at: item.created_at,
-    updated_at: item.updated_at,
-  }));
+  return rawList.map((item: any) => {
+    const isLocation =
+      item.prefix_title === 'location' ||
+      (item.description && typeof item.description === 'string' && item.description.includes('[PREFIX:LOCATION]')) ||
+      (item.last_name === '-' && item.prefix_title !== 'ms');
+
+    const cleanDesc = item.description && typeof item.description === 'string'
+      ? item.description.replace('[PREFIX:LOCATION]', '').trim()
+      : (item.description || '');
+
+    return {
+      id: item.id,
+      personnel_code: item.personnel_code,
+      prefix_title: (isLocation ? 'location' : (item.prefix_title || 'mr')) as any,
+      first_name: item.first_name || '',
+      last_name: isLocation && item.last_name === '-' ? '' : (item.last_name || ''),
+      job_title: item.job_title || '',
+      department: item.department || '',
+      location: item.location || '',
+      mobiles: Array.isArray(item.mobiles) ? item.mobiles : [],
+      landlines: Array.isArray(item.landlines) ? item.landlines : [],
+      email: item.email || '',
+      description: cleanDesc,
+      avatar: item.avatar || '',
+      contact_type: item.contact_type || 'internal',
+      domain: item.domain || '',
+      domain_name: item.domain_name || item.domain || '',
+      domain_id: item.domain_id || '',
+      company_name: item.company_name || '',
+      is_favorite: Boolean(item.is_favorite),
+      created_by_user_id: item.created_by_user_id,
+      is_public: item.is_public !== undefined ? Boolean(item.is_public) : true,
+      display_order: typeof item.display_order === 'number' ? item.display_order : undefined,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    };
+  });
 };
 
 /**
@@ -390,11 +405,43 @@ export const saveContactToApi = async (
     delete payload.id;
   }
 
-  const res = await fetch(targetUrl, {
+  // Ensure Location contact (بدون عنوان (مکانی)) passes backend validator
+  if (contact.prefix_title === 'location') {
+    if (!payload.last_name || !payload.last_name.trim()) {
+      payload.last_name = '-';
+    }
+  }
+
+  let res = await fetch(targetUrl, {
     method,
     headers,
     body: JSON.stringify(payload),
   });
+
+  // If server validation failed (422) because prefix_title was 'location' and server only allows mr/ms
+  if (!res.ok && res.status === 422 && contact.prefix_title === 'location') {
+    try {
+      const errClone = res.clone();
+      const errText = await errClone.text();
+      if (errText.toLowerCase().includes('prefix_title') || errText.toLowerCase().includes('prefix title')) {
+        const retryPayload = {
+          ...payload,
+          prefix_title: null,
+          description: payload.description ? `${payload.description} [PREFIX:LOCATION]` : '[PREFIX:LOCATION]',
+        };
+        const retryRes = await fetch(targetUrl, {
+          method,
+          headers,
+          body: JSON.stringify(retryPayload),
+        });
+        if (retryRes.ok) {
+          res = retryRes;
+        }
+      }
+    } catch (e) {
+      console.warn('Prefix retry check encountered exception:', e);
+    }
+  }
 
   if (!res.ok) {
     const errText = await res.text();
@@ -596,6 +643,38 @@ export const saveDepartmentsToApi = async (departments: Department[], config: La
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(`خطای ذخیره واحدها در دیتابیس (${res.status}): ${errText}`);
+  }
+};
+
+/**
+ * Save custom order of contacts (Drag & Drop) to server and storage
+ */
+export const saveContactsOrderToApi = async (
+  orderedItems: { id: number | string; display_order: number }[],
+  config: LaravelConfig
+): Promise<void> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/contacts/reorder`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ orders: orderedItems }),
+    });
+
+    if (!res.ok) {
+      console.warn(`Server reorder endpoint returned ${res.status}, order preserved locally.`);
+    }
+  } catch (err) {
+    console.warn('Server reorder endpoint not accessible, order saved locally.', err);
   }
 };
 
