@@ -81,6 +81,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   const isAdmin = currentUser ? currentUser.role === 'admin' : false;
   const isOwner = contact && currentUser ? contact.created_by_user_id === currentUser.id : false;
   const canEdit = true;
+  const canEditPersonnelCode = isCreateMode ? true : (isAdmin || isOwner);
 
   const effectiveDepartments =
     departments && departments.length > 0
@@ -403,9 +404,12 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       }
     }
 
-    // ** Personnel code check (safe uniqueness check preventing false duplicates on same contact)
-    const cleanPersonnelCode = normalizePhoneNumber(personnelCode.trim());
-    if (contactType === 'internal' && cleanPersonnelCode) {
+    // ** Personnel code check: Only validate and update if user has permission to edit personnel code
+    const cleanPersonnelCode = canEditPersonnelCode
+      ? normalizePhoneNumber(personnelCode.trim())
+      : (contact?.personnel_code || '');
+
+    if (canEditPersonnelCode && contactType === 'internal' && cleanPersonnelCode) {
       if (allContacts && allContacts.length > 0) {
         const isDuplicate = allContacts.some(
           (c) =>
@@ -1000,25 +1004,55 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-neutral-700">
-                      کد پرسنلی {contactType === 'internal' ? <span className="text-red-500 font-bold">* (الزامی)</span> : <span className="text-neutral-400 font-normal">(اختیاری)</span>}
+                      کد پرسنلی{' '}
+                      {contactType === 'internal' && prefixTitle !== 'location' ? (
+                        <span className="text-red-500 font-bold">* (الزامی)</span>
+                      ) : (
+                        <span className="text-neutral-400 font-normal">(اختیاری)</span>
+                      )}
                     </label>
+                    {!canEditPersonnelCode && (
+                      <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                        فقط مدیر یا ثبت‌کننده
+                      </span>
+                    )}
                   </div>
-                  <input
-                    type="text"
-                    value={personnelCode}
-                    onChange={(e) => setPersonnelCode(e.target.value)}
-                    className={`w-full px-3 py-2 bg-white border rounded-lg text-neutral-900 text-xs focus:ring-2 focus:outline-none font-mono ${
-                      contactType === 'internal' && !personnelCode.trim()
-                        ? 'border-amber-400 focus:ring-amber-500 bg-amber-50/20'
-                        : 'border-neutral-300 focus:ring-blue-600'
-                    }`}
-                    placeholder="کد پرسنلی"
-                    dir="ltr"
-                  />
-                  {contactType === 'internal' && (
-                    <p className="text-[10px] text-neutral-500 mt-1">
-                      کد پرسنلی یکتا برای پرسنل درون‌سازمانی
-                    </p>
+                  {canEditPersonnelCode ? (
+                    <>
+                      <input
+                        type="text"
+                        value={personnelCode}
+                        onChange={(e) => setPersonnelCode(e.target.value)}
+                        className={`w-full px-3 py-2 bg-white border rounded-lg text-neutral-900 text-xs focus:ring-2 focus:outline-none font-mono ${
+                          contactType === 'internal' && prefixTitle !== 'location' && !personnelCode.trim()
+                            ? 'border-amber-400 focus:ring-amber-500 bg-amber-50/20'
+                            : 'border-neutral-300 focus:ring-blue-600'
+                        }`}
+                        placeholder="کد پرسنلی"
+                        dir="ltr"
+                      />
+                      {contactType === 'internal' && prefixTitle !== 'location' && (
+                        <p className="text-[10px] text-neutral-500 mt-1">
+                          کد پرسنلی یکتا برای پرسنل درون‌سازمانی
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        value={personnelCode ? '••••••' : ''}
+                        readOnly
+                        disabled
+                        className="w-full px-3 py-2 bg-neutral-100 border border-neutral-200 rounded-lg text-neutral-500 text-xs cursor-not-allowed font-mono"
+                        placeholder="غیرقابل ویرایش"
+                        title="تنها مدیر سیستم و کاربر ثبت‌کننده این مخاطب امکان ویرایش کد پرسنلی را دارند."
+                        dir="ltr"
+                      />
+                      <p className="text-[10px] text-neutral-400 mt-1">
+                        ویرایش کد پرسنلی فقط برای مدیر سیستم و ثبت‌کننده این مخاطب مجاز است.
+                      </p>
+                    </>
                   )}
                 </div>
               </div>
@@ -1306,11 +1340,6 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                     {department && (
                       <span className="bg-white/10 px-2.5 py-0.5 rounded text-neutral-200 border border-white/10">
                         {department}
-                      </span>
-                    )}
-                    {personnelCode && (
-                      <span className="bg-white/10 px-2 py-0.5 rounded text-neutral-300 font-mono text-[11px]" dir="ltr">
-                        کد: {personnelCode}
                       </span>
                     )}
                     {/* Scope indicator */}

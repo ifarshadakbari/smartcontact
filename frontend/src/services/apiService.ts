@@ -415,11 +415,12 @@ export const saveContactToApi = async (
     : [];
 
   const isLocation = contact.prefix_title === 'location';
-  // Backend validation: accepts 'mr', 'ms', or nullable string. Null if not standard prefix
-  const prefixTitleVal =
-    contact.prefix_title === 'mr' || contact.prefix_title === 'ms'
-      ? contact.prefix_title
-      : null;
+  // Backend validation: accepts 'location', 'mr', 'ms'. Never send null because prefix_title is NOT NULL in database schema.
+  const prefixTitleVal = isLocation
+    ? 'location'
+    : contact.prefix_title === 'ms'
+    ? 'ms'
+    : 'mr';
 
   // Required name fields
   const firstNameVal = (contact.first_name || '').trim();
@@ -495,7 +496,7 @@ export const saveContactToApi = async (
       if (errText.toLowerCase().includes('prefix_title') || errText.toLowerCase().includes('prefix title')) {
         const retryPayload = {
           ...payload,
-          prefix_title: null,
+          prefix_title: 'mr', // Fallback to 'mr' if server enum doesn't have 'location'; description holds [PREFIX:LOCATION]
         };
         const retryRes = await fetch(targetUrl, {
           method,
@@ -527,10 +528,30 @@ export const saveContactToApi = async (
 
   const json = await res.json();
   const savedItem = json.data || json;
+
+  const isResultLocation =
+    contact.prefix_title === 'location' ||
+    savedItem.prefix_title === 'location' ||
+    (savedItem.description && typeof savedItem.description === 'string' && savedItem.description.includes('[PREFIX:LOCATION]')) ||
+    (savedItem.last_name === '-' && savedItem.prefix_title !== 'ms');
+
+  const cleanSavedLastName =
+    isResultLocation && (savedItem.last_name === '-' || !savedItem.last_name)
+      ? (contact.last_name === '-' ? '' : (contact.last_name || ''))
+      : (savedItem.last_name || contact.last_name || '');
+
+  const cleanSavedDesc =
+    savedItem.description && typeof savedItem.description === 'string'
+      ? savedItem.description.replace('[PREFIX:LOCATION]', '').trim()
+      : (contact.description || '');
+
   return {
     ...contact,
     ...savedItem,
     id: savedItem.id || contact.id,
+    prefix_title: isResultLocation ? 'location' : (contact.prefix_title || savedItem.prefix_title || 'mr'),
+    last_name: cleanSavedLastName,
+    description: cleanSavedDesc,
   };
 };
 

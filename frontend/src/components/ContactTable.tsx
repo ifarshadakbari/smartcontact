@@ -218,12 +218,6 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                               تلفن رومیزی
                             </span>
                           )}
-
-                          {contact.personnel_code && (
-                            <span className="text-[10px] text-neutral-400 font-mono block" dir="ltr">
-                              #{contact.personnel_code}
-                            </span>
-                          )}
                         </div>
                       </div>
                     </div>

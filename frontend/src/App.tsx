@@ -478,10 +478,11 @@ export default function App() {
     }
 
     let updated: Contact[];
+    const cleanLast = finalContact.prefix_title === 'location' && finalContact.last_name === '-' ? '' : (finalContact.last_name || '');
     const prefix = finalContact.prefix_title === 'ms' ? 'خانم' : finalContact.prefix_title === 'location' ? '' : 'آقای';
     const displayName = prefix
-      ? `${prefix} ${finalContact.first_name} ${finalContact.last_name}`.trim()
-      : `${finalContact.first_name} ${finalContact.last_name}`.trim();
+      ? `${prefix} ${finalContact.first_name} ${cleanLast}`.trim()
+      : `${finalContact.first_name} ${cleanLast}`.trim();
 
     if (exists) {
       updated = contacts.map((c) =>
