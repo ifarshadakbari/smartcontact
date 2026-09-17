@@ -27,9 +27,11 @@ import {
   Sparkles,
   Radio,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { Contact, LandlineEntry, PrefixTitle, User, Department, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
+import { resizeAvatarImage, getBase64SizeInKb } from '../utils/imageUtils';
 import {
   getVisibleMobiles,
   normalizePhoneNumber,
@@ -116,8 +118,12 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   const [email, setEmail] = useState('');
   const [description, setDescription] = useState('');
   const [avatar, setAvatar] = useState<string | undefined>(undefined);
+  const [isProcessingAvatar, setIsProcessingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [isDraggingAvatar, setIsDraggingAvatar] = useState(false);
   const [personnelCode, setPersonnelCode] = useState('');
   const [isPublic, setIsPublic] = useState(true);
+  const [isFavorite, setIsFavorite] = useState<boolean>(() => Boolean(contact?.is_favorite));
 
   // Personal Overlay Form State (Detail View)
   const [showPersonalOverlayForm, setShowPersonalOverlayForm] = useState(false);
@@ -130,6 +136,9 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
   useEffect(() => {
     setValidationError(null);
+    setAvatarError(null);
+    setIsProcessingAvatar(false);
+    setIsDraggingAvatar(false);
     setPersonalOverlayError(null);
     setPersonalOverlaySuccess(null);
     setShowPersonalOverlayForm(false);
@@ -161,6 +170,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       setAvatar(contact.avatar);
       setPersonnelCode(contact.personnel_code || '');
       setIsPublic(contact.is_public ?? true);
+      setIsFavorite(Boolean(contact.is_favorite));
       setIsEditing(isCreateMode);
     } else if (isCreateMode) {
       const defaultType = initialContactType || 'internal';
@@ -249,19 +259,36 @@ export const ContactModal: React.FC<ContactModalProps> = ({
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
-  // Avatar Upload Handlers
+  const handleToggleFavoriteInModal = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!contact || !onToggleFavorite) return;
+    setIsFavorite((prev) => !prev);
+    onToggleFavorite(contact.id);
+  };
+
+  // Avatar Upload & Optimization Handlers (Client-side Resize to max 300x300 JPEG Base64)
+  const processAvatarFile = async (file: File) => {
+    setAvatarError(null);
+    setIsProcessingAvatar(true);
+    try {
+      const compressedDataUrl = await resizeAvatarImage(file, { maxSize: 300, quality: 0.85 });
+      setAvatar(compressedDataUrl);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'خطا در بهینه‌سازی و ذخیره تصویر آواتار.';
+      setAvatarError(msg);
+    } finally {
+      setIsProcessingAvatar(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert('حجم تصویر نباید بیشتر از ۲ مگابایت باشد.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatar(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      processAvatarFile(file);
     }
   };
 
@@ -489,7 +516,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       email: email.trim() || undefined,
       description: description.trim() || undefined,
       avatar,
-      is_favorite: contact?.is_favorite || false,
+      is_favorite: isFavorite,
       created_by_user_id: contact?.created_by_user_id ?? (currentUser?.id || 1),
       created_by_user_name: contact?.created_by_user_name ?? (currentUser?.name || 'مدیر سیستم'),
       is_public: isPublic,
@@ -543,13 +570,18 @@ export const ContactModal: React.FC<ContactModalProps> = ({
             {!isCreateMode && !isEditing && onToggleFavorite && contact && (
               <button
                 type="button"
-                onClick={() => onToggleFavorite(contact.id)}
-                className="p-2 text-neutral-400 hover:text-blue-600 rounded-lg transition cursor-pointer"
-                title="نشان کردن"
+                id="modal-favorite-toggle-btn"
+                onClick={handleToggleFavoriteInModal}
+                className={`p-2 rounded-lg transition-all duration-150 cursor-pointer flex items-center justify-center ${
+                  isFavorite
+                    ? 'text-blue-600 bg-blue-50/80 hover:bg-blue-100 hover:text-blue-700'
+                    : 'text-neutral-400 hover:text-blue-600 hover:bg-neutral-100'
+                }`}
+                title={isFavorite ? 'حذف از نشان‌شده‌ها' : 'افزودن به نشان‌شده‌ها'}
               >
                 <Star
-                  className={`w-4 h-4 ${
-                    contact.is_favorite
+                  className={`w-4 h-4 transition-transform active:scale-90 ${
+                    isFavorite
                       ? 'fill-blue-600 text-blue-600'
                       : 'stroke-[1.75]'
                   }`}
@@ -594,11 +626,38 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               {/* Avatar Upload & Title Section */}
               <div className="p-4 bg-neutral-50 rounded-xl border border-neutral-200 flex flex-col sm:flex-row items-center gap-5">
                 <div className="flex flex-col items-center gap-2">
-                  <Avatar
-                    src={avatar}
-                    prefix={prefixTitle}
-                    size="xl"
-                  />
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDraggingAvatar(true);
+                    }}
+                    onDragLeave={() => setIsDraggingAvatar(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDraggingAvatar(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) processAvatarFile(file);
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`relative group cursor-pointer rounded-2xl p-1 transition-all border-2 ${
+                      isDraggingAvatar
+                        ? 'border-blue-500 bg-blue-50/60 scale-105 shadow-sm'
+                        : 'border-dashed border-neutral-300 hover:border-blue-400 bg-white'
+                    }`}
+                    title="برای انتخاب تصویر کلیک کنید یا عکس را به اینجا بکشید و رها کنید (Drag & Drop)"
+                  >
+                    <Avatar
+                      src={avatar}
+                      prefix={prefixTitle}
+                      size="xl"
+                    />
+                    {isProcessingAvatar && (
+                      <div className="absolute inset-0 bg-black/50 rounded-full flex flex-col items-center justify-center text-white">
+                        <Loader2 className="w-6 h-6 animate-spin text-white" />
+                        <span className="text-[9px] mt-1 font-medium">بهینه‌سازی...</span>
+                      </div>
+                    )}
+                  </div>
                   <input
                     ref={fileInputRef}
                     type="file"
@@ -606,6 +665,9 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                     onChange={handleAvatarFileChange}
                     className="hidden"
                   />
+                  <span className="text-[10px] text-neutral-400">
+                    کلیک یا کشیدن و رها کردن عکس
+                  </span>
                 </div>
 
                 <div className="flex-1 space-y-3 w-full">
@@ -613,27 +675,51 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                     <label className="block text-xs font-semibold text-neutral-700 mb-1">
                       عکس پرسنلی (آواتار)
                     </label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
+                        disabled={isProcessingAvatar}
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-3 py-1.5 bg-white border border-neutral-300 rounded-lg text-xs font-medium text-neutral-700 hover:bg-neutral-100 transition cursor-pointer flex items-center gap-1.5"
+                        className="px-3 py-1.5 bg-white border border-neutral-300 rounded-lg text-xs font-medium text-neutral-700 hover:bg-neutral-100 transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                       >
-                        <Upload className="w-3.5 h-3.5 text-neutral-500" />
-                        <span>آپلود تصویر پرسنل</span>
+                        {isProcessingAvatar ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+                            <span>در حال فشرده‌سازی...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-3.5 h-3.5 text-neutral-500" />
+                            <span>آپلود تصویر پرسنل</span>
+                          </>
+                        )}
                       </button>
                       {avatar && (
-                        <button
-                          type="button"
-                          onClick={() => setAvatar(undefined)}
-                          className="text-xs text-red-600 hover:text-red-700 cursor-pointer"
-                        >
-                          حذف عکس (استفاده از آواتار خودکار)
-                        </button>
+                        <>
+                          <span
+                            className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-medium"
+                            title="حجم تصویر پس از تغییر ابعاد و فشرده‌سازی خودکار"
+                          >
+                            حجم بهینه‌شده: {getBase64SizeInKb(avatar)} کیلوبایت
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setAvatar(undefined)}
+                            className="text-xs text-red-600 hover:text-red-700 cursor-pointer"
+                          >
+                            حذف عکس
+                          </button>
+                        </>
                       )}
                     </div>
+                    {avatarError && (
+                      <p className="text-xs text-red-600 mt-1.5 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>{avatarError}</span>
+                      </p>
+                    )}
                     <p className="text-[11px] text-neutral-500 mt-1">
-                      در صورت عدم آپلود، آواتار زن یا مرد بر حسب عنوان انتخابی نمایش داده می‌شود.
+                      تصاویر به صورت خودکار به ابعاد ۳۰۰×۳۰۰ تغییر مقیاس یافته و فشرده می‌شوند تا سرعت سامانه و دیتابیس همیشه بهینه بماند.
                     </p>
                   </div>
 

@@ -16,6 +16,20 @@ class ContactController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
+        if (!$user) {
+            $token = $request->bearerToken();
+            if ($token && class_exists('\Laravel\Sanctum\PersonalAccessToken')) {
+                try {
+                    $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+                    if ($pat) {
+                        $user = $pat->tokenable;
+                    }
+                } catch (\Throwable $e) {}
+            }
+            if (!$user && $request->hasHeader('X-User-Id')) {
+                $user = User::find($request->header('X-User-Id'));
+            }
+        }
         $query = Contact::query();
 
         // فیلتر جستجو
@@ -50,8 +64,12 @@ class ContactController extends Controller
         if (Schema::hasColumn('contacts', 'display_order')) {
             $query->orderBy('display_order', 'asc');
         }
-        $contacts = $query->orderBy('id', 'desc')->get()->map(function ($contact) use ($userFavIds) {
-            $contact->is_favorite = in_array($contact->id, $userFavIds);
+        $contacts = $query->orderBy('id', 'desc')->get()->map(function ($contact) use ($user, $userFavIds) {
+            if ($user) {
+                $contact->is_favorite = in_array($contact->id, $userFavIds);
+            } else {
+                $contact->is_favorite = (bool) $contact->is_favorite;
+            }
             return $contact;
         });
 
@@ -81,6 +99,7 @@ class ContactController extends Controller
             'contact_type'     => 'nullable|string|in:internal,external',
             'domain'           => 'nullable|string|max:100',
             'is_public'        => 'nullable|boolean',
+            'is_favorite'      => 'nullable|boolean',
         ]);
 
         if ($user) {
@@ -175,6 +194,7 @@ class ContactController extends Controller
             'contact_type'     => 'nullable|string|in:internal,external',
             'domain'           => 'nullable|string|max:100',
             'is_public'        => 'nullable|boolean',
+            'is_favorite'      => 'nullable|boolean',
         ]);
 
         $contact->update($validated);
@@ -213,26 +233,66 @@ class ContactController extends Controller
     }
 
     /**
-     * تغییر وضعیت نشان‌شده / علاقه‌مندی به ازای کاربر لاگین‌شده (Toggle Favorite)
+     * تغییر وضعیت نشان‌شده / علاقه‌مندی مخاطب در دیتابیس (Toggle Favorite)
      * هم با شناسه عددی ($id) و هم با مدل بایندینگ (Contact $contact) سازگار است.
+     * اطلاعات را هم در جدول رابطه contact_favorites و هم در ستون is_favorite جدول contacts ذخیره می‌کند.
      */
     public function favorite(Request $request, $contact)
     {
-        $user = $request->user();
-        if (!$user) {
-            return response()->json(['message' => 'کاربر احراز هویت نشده است.'], 401);
-        }
-
         $contactModel = $contact instanceof Contact ? $contact : Contact::findOrFail($contact);
 
-        // بررسی و تغییر وضعیت در جدول رابط contact_favorites
-        $isFavorited = $user->favoriteContacts()->where('contact_id', $contactModel->id)->exists();
-        if ($isFavorited) {
-            $user->favoriteContacts()->detach($contactModel->id);
-            $newStatus = false;
+        // تلاش برای تشخیص کاربر از طریق Auth، Sanctum Token، هدر یا بادی درخواست
+        $user = $request->user();
+        if (!$user) {
+            $token = $request->bearerToken();
+            if ($token && class_exists('\Laravel\Sanctum\PersonalAccessToken')) {
+                try {
+                    $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+                    if ($pat) {
+                        $user = $pat->tokenable;
+                    }
+                } catch (\Throwable $e) {}
+            }
+            if (!$user && $request->hasHeader('X-User-Id')) {
+                $user = User::find($request->header('X-User-Id'));
+            }
+            if (!$user && $request->filled('user_id')) {
+                $user = User::find($request->input('user_id'));
+            }
+        }
+
+        if ($user) {
+            // وضعیت بر اساس جدول رابط کاربری contact_favorites
+            $isFavorited = $user->favoriteContacts()->where('contact_id', $contactModel->id)->exists();
+            if ($request->has('is_favorite')) {
+                $newStatus = (bool) $request->input('is_favorite');
+                if ($newStatus && !$isFavorited) {
+                    $user->favoriteContacts()->attach($contactModel->id);
+                } elseif (!$newStatus && $isFavorited) {
+                    $user->favoriteContacts()->detach($contactModel->id);
+                }
+            } else {
+                if ($isFavorited) {
+                    $user->favoriteContacts()->detach($contactModel->id);
+                    $newStatus = false;
+                } else {
+                    $user->favoriteContacts()->attach($contactModel->id);
+                    $newStatus = true;
+                }
+            }
         } else {
-            $user->favoriteContacts()->attach($contactModel->id);
-            $newStatus = true;
+            // اگر کاربری لاگین نبود، وضعیت مستقیماً بر اساس مقدار فعلی یا مقدار درخواستی معکوس می‌شود
+            if ($request->has('is_favorite')) {
+                $newStatus = (bool) $request->input('is_favorite');
+            } else {
+                $newStatus = !$contactModel->is_favorite;
+            }
+        }
+
+        // ذخیره قطعی وضعیت جدید در ستون is_favorite جدول contacts در دیتابیس
+        if (\Illuminate\Support\Facades\Schema::hasColumn('contacts', 'is_favorite')) {
+            $contactModel->is_favorite = $newStatus;
+            $contactModel->save();
         }
 
         return response()->json([

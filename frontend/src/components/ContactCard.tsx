@@ -204,7 +204,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                 key={item.id || idx}
                 className="bg-neutral-50 rounded-lg p-2.5 border border-neutral-200 flex items-center justify-between"
               >
-                <div>
+                <div className="flex-1 min-w-0">
                   {item.title && (
                     <div className="flex items-center gap-1 text-[10px] mb-1">
                       {isWirelessLine(item.title) ? (
@@ -220,30 +220,61 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                   )}
                   {/* Fixed Phone with Large Blue Style - Only if phone is registered */}
                   {item.phone && (
-                    <div className="flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <span className="text-[11px] text-neutral-500">تلفن ثابت:</span>
-                      <a
-                        href={`tel:${item.phone}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-base sm:text-lg font-black text-blue-600 font-mono tracking-wider hover:underline"
-                        dir="ltr"
-                      >
-                        {item.phone}
-                      </a>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span className="text-[11px] text-neutral-500 whitespace-nowrap">تلفن ثابت:</span>
+                        <a
+                          href={`tel:${item.phone}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-base sm:text-lg font-black text-blue-600 font-mono tracking-wider hover:underline"
+                          dir="ltr"
+                        >
+                          {item.phone}
+                        </a>
+                      </div>
+
+                      {/* Fixed Phone Actions (Call + Copy) directly aligned with Fixed Phone */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => handleCallClick(e, item.phone, item.title || 'تلفن ثابت')}
+                          className="p-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 transition cursor-pointer text-xs"
+                          title={
+                            currentUser
+                              ? 'تماس مستقیم با این خط تلفن از روی IP Phone شما'
+                              : 'برای تماس خودکار VoIP، وارد شوید'
+                          }
+                        >
+                          <PhoneCall className="w-4 h-4 text-emerald-600" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => handleCopy(e, item.phone, `phone-${contact.id}-${idx}`)}
+                          className="p-1.5 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-neutral-600 hover:text-neutral-900 transition cursor-pointer text-xs"
+                          title="کپی شماره تلفن ثابت"
+                        >
+                          {copiedKey === `phone-${contact.id}-${idx}` ? (
+                            <Check className="w-4 h-4 text-emerald-600" />
+                          ) : (
+                            <Copy className="w-4 h-4 text-neutral-400" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
 
                   {/* Extension in neat badge with direct click-to-call */}
                   {item.extension && (
-                    <div className={`flex items-center justify-between gap-1.5 text-xs ${item.phone ? 'mt-1.5' : ''}`}>
+                    <div className={`flex items-center justify-between gap-2 ${item.phone ? 'mt-1.5' : ''}`}>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-neutral-500">شماره داخلی:</span>
+                        <span className="text-[11px] text-neutral-500 whitespace-nowrap">شماره داخلی:</span>
                         <span
-                          className={`font-mono px-2 py-0.5 rounded ${
+                          className={`font-mono px-2 py-0.5 rounded inline-flex items-center justify-center ${
                             contact.contact_type !== 'external'
-                              ? 'text-base sm:text-lg font-black text-neutral-900 bg-neutral-200/90 tracking-wider'
-                              : 'font-bold text-neutral-800 bg-neutral-200/80 text-xs'
+                              ? 'text-base sm:text-lg font-black text-neutral-900 bg-neutral-200/90 tracking-wider min-h-[32px]'
+                              : 'font-bold text-neutral-800 bg-neutral-200/80 text-xs min-h-[26px]'
                           }`}
                           dir="ltr"
                         >
@@ -254,55 +285,18 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                         <button
                           type="button"
                           onClick={(e) => handleCallClick(e, item.extension!, `داخلی ${item.extension}`)}
-                          className={`text-[10px] px-2 py-0.5 rounded border inline-flex items-center gap-1 transition cursor-pointer font-medium ${
-                            currentUser
-                              ? 'text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
-                              : 'text-neutral-500 hover:text-neutral-800 bg-neutral-100 hover:bg-neutral-200 border-neutral-300'
-                          }`}
+                          className="text-xs px-3 py-1 rounded-lg border border-emerald-300 inline-flex items-center justify-center gap-1.5 transition cursor-pointer font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 min-h-[32px] shrink-0"
                           title={
                             currentUser
                               ? 'تماس مستقیم با این داخلی از طریق IP Phone شما'
                               : 'برای تماس خودکار VoIP، وارد شوید'
                           }
                         >
-                          <PhoneCall className="w-3 h-3 text-emerald-600" />
+                          <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
                           <span>تماس با داخلی</span>
                         </button>
                       )}
                     </div>
-                  )}
-                </div>
-
-                {/* Fixed Phone Actions (Call + Copy) */}
-                <div className="flex items-center gap-1">
-                  {item.phone && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleCallClick(e, item.phone, item.title || 'تلفن ثابت')}
-                      className="p-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 transition cursor-pointer text-xs"
-                      title={
-                        currentUser
-                          ? 'تماس مستقیم با این خط تلفن از روی IP Phone شما'
-                          : 'برای تماس خودکار VoIP، وارد شوید'
-                      }
-                    >
-                      <PhoneCall className="w-4 h-4 text-emerald-600" />
-                    </button>
-                  )}
-
-                  {item.phone && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleCopy(e, item.phone, `phone-${contact.id}-${idx}`)}
-                      className="p-1.5 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-neutral-600 hover:text-neutral-900 transition cursor-pointer text-xs"
-                      title="کپی شماره تلفن ثابت"
-                    >
-                      {copiedKey === `phone-${contact.id}-${idx}` ? (
-                        <Check className="w-4 h-4 text-emerald-600" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-neutral-400" />
-                      )}
-                    </button>
                   )}
                 </div>
               </div>

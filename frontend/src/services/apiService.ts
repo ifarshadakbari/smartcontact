@@ -78,6 +78,18 @@ export const saveStoredAuthUser = (user: User | null): void => {
   }
 };
 
+export const getAuthToken = (): string => {
+  try {
+    return (
+      localStorage.getItem('enterprise_phonebook_auth_token') ||
+      sessionStorage.getItem('enterprise_phonebook_auth_token') ||
+      ''
+    );
+  } catch {
+    return '';
+  }
+};
+
 // Permanent User Favorites Storage (Keyed per user for permanent multi-user persistence)
 const STORAGE_KEY_USER_FAVORITES_PREFIX = 'enterprise_phonebook_user_favs_v10_';
 
@@ -315,8 +327,13 @@ export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Conta
   const headers: Record<string, string> = {
     Accept: 'application/json',
   };
-  if (config.token) {
-    headers['Authorization'] = `Bearer ${config.token}`;
+  const token = config.token || getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const authUser = getStoredAuthUser();
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
   }
 
   const res = await fetch(targetUrl, { method: 'GET', headers });
@@ -377,8 +394,13 @@ export const saveContactToApi = async (
     Accept: 'application/json',
     'Content-Type': 'application/json',
   };
-  if (config.token) {
-    headers['Authorization'] = `Bearer ${config.token}`;
+  const token = config.token || getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const authUser = getStoredAuthUser();
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
   }
 
   // Determine if this is an update or create
@@ -456,6 +478,7 @@ export const saveContactToApi = async (
     contact_type: contact.contact_type === 'external' ? 'external' : 'internal',
     domain: contact.domain || contact.domain_name || null,
     is_public: contact.is_public !== undefined ? Boolean(contact.is_public) : true,
+    is_favorite: Boolean(contact.is_favorite),
   };
 
   let res: Response;
@@ -575,19 +598,51 @@ export const deleteContactFromApi = async (id: number | string, config: LaravelC
 };
 
 /**
- * Toggle Favorite on Laravel Live API
+ * Toggle Favorite on Laravel Live API / Database
  */
-export const toggleFavoriteOnApi = async (id: number | string, config: LaravelConfig): Promise<void> => {
+export const toggleFavoriteOnApi = async (
+  id: number | string,
+  config: LaravelConfig,
+  forcedStatus?: boolean
+): Promise<{ success: boolean; is_favorite?: boolean }> => {
   const baseUrl = config.baseUrl.replace(/\/$/, '');
   const targetUrl = `${baseUrl}${config.apiPrefix}/contacts/${id}/favorite`;
+  const token = config.token || getAuthToken();
+  const authUser = getStoredAuthUser();
+
   const headers: Record<string, string> = {
     Accept: 'application/json',
+    'Content-Type': 'application/json',
   };
-  if (config.token) {
-    headers['Authorization'] = `Bearer ${config.token}`;
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
   }
 
-  await fetch(targetUrl, { method: 'POST', headers }).catch(() => {});
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        contact_id: id,
+        user_id: authUser?.id,
+        ...(forcedStatus !== undefined ? { is_favorite: forcedStatus } : {}),
+      }),
+    });
+
+    if (res.ok) {
+      const json = await res.json().catch(() => null);
+      return {
+        success: true,
+        is_favorite: json?.is_favorite !== undefined ? Boolean(json.is_favorite) : forcedStatus,
+      };
+    }
+  } catch (err) {
+    console.warn('Network error reaching backend favorite endpoint:', err);
+  }
+  return { success: false, is_favorite: forcedStatus };
 };
 
 /**

@@ -115,27 +115,38 @@ export default function App() {
   const [contacts, setContacts] = useState<Contact[]>(() => {
     const raw = getStoredContacts();
     const user = getStoredAuthUser();
-    if (user) {
-      const userFavIds = new Set(getStoredUserFavorites(user.id).map(String));
-      return raw.map((c) => ({
-        ...c,
-        is_favorite: userFavIds.has(String(c.id)),
-      }));
-    }
-    return raw;
+    const userId = user ? user.id : 'guest';
+    const storedFavs = getStoredUserFavorites(userId);
+    const userFavIds = new Set(storedFavs.map(String));
+
+    return raw.map((c) => ({
+      ...c,
+      is_favorite: userFavIds.size > 0 ? userFavIds.has(String(c.id)) : Boolean(c.is_favorite),
+    }));
   });
 
   // Automatically load and persist user-specific favorites when currentUser changes
   useEffect(() => {
-    if (currentUser) {
-      const userFavIds = new Set(getStoredUserFavorites(currentUser.id).map(String));
-      setContacts((prev) =>
-        prev.map((c) => ({
-          ...c,
-          is_favorite: userFavIds.has(String(c.id)),
-        }))
-      );
-    }
+    const user = currentUser || getStoredAuthUser();
+    const userId = user ? user.id : 'guest';
+    const storedFavs = getStoredUserFavorites(userId);
+    const userFavIds = new Set(storedFavs.map(String));
+
+    setContacts((prev) =>
+      prev.map((c) => ({
+        ...c,
+        is_favorite: userFavIds.size > 0 ? userFavIds.has(String(c.id)) : Boolean(c.is_favorite),
+      }))
+    );
+
+    setSelectedContact((prev) =>
+      prev
+        ? {
+            ...prev,
+            is_favorite: userFavIds.size > 0 ? userFavIds.has(String(prev.id)) : Boolean(prev.is_favorite),
+          }
+        : null
+    );
   }, [currentUser?.id]);
 
   // View & Filter States
@@ -178,8 +189,25 @@ export default function App() {
       .then((apiContacts) => {
         if (!isMounted) return;
         if (Array.isArray(apiContacts)) {
-          setContacts(apiContacts);
-          saveStoredContacts(apiContacts);
+          const user = currentUser || getStoredAuthUser();
+          const userId = user ? user.id : 'guest';
+          const storedFavs = getStoredUserFavorites(userId);
+          const favSet = new Set(storedFavs.map(String));
+
+          const mergedContacts = apiContacts.map((c) => ({
+            ...c,
+            is_favorite: favSet.size > 0 ? favSet.has(String(c.id)) : Boolean(c.is_favorite),
+          }));
+
+          setContacts(mergedContacts);
+          saveStoredContacts(mergedContacts);
+
+          // اگر پنجره نمایش جزئیات مخاطب باز است، اطلاعات آن را هم همگام کنیم
+          setSelectedContact((prev) => {
+            if (!prev) return null;
+            const match = mergedContacts.find((c) => String(c.id) === String(prev.id));
+            return match || prev;
+          });
         }
         setIsLoadingApi(false);
       })
@@ -431,19 +459,34 @@ export default function App() {
   // Favorite Toggle (Permanently stored per user in database / localStorage)
   const handleToggleFavorite = (id: number | string) => {
     const targetIdStr = String(id);
-    const updated = contacts.map((c) =>
-      String(c.id) === targetIdStr ? { ...c, is_favorite: !c.is_favorite } : c
-    );
+    let newFavState = false;
+
+    const updated = contacts.map((c) => {
+      if (String(c.id) === targetIdStr) {
+        newFavState = !c.is_favorite;
+        return { ...c, is_favorite: newFavState };
+      }
+      return c;
+    });
     updateContacts(updated);
 
-    if (currentUser) {
-      const activeFavIds = updated
-        .filter((c) => c.is_favorite)
-        .map((c) => c.id);
-      saveStoredUserFavorites(currentUser.id, activeFavIds);
-    }
+    // به‌روزرسانی بلافاصله مخاطب انتخابی در صورت باز بودن پنجره جزئیات
+    setSelectedContact((prev) =>
+      prev && String(prev.id) === targetIdStr
+        ? { ...prev, is_favorite: newFavState }
+        : prev
+    );
 
-    toggleFavoriteOnApi(id, laravelConfig);
+    // ذخیره دائمی نشان‌های کاربر در حافظه محلی
+    const user = currentUser || getStoredAuthUser();
+    const userId = user ? user.id : 'guest';
+    const activeFavIds = updated
+      .filter((c) => c.is_favorite)
+      .map((c) => c.id);
+    saveStoredUserFavorites(userId, activeFavIds);
+
+    // ارسال به دیتابیس با وضعیت جدید
+    toggleFavoriteOnApi(id, laravelConfig, newFavState);
   };
 
   // Save Contact (Create or Edit)
@@ -959,19 +1002,6 @@ export default function App() {
                 )}
               </button>
 
-              {/* Admin Layout Reorder Quick Button */}
-              {currentUser?.role === 'admin' && (
-                <button
-                  type="button"
-                  onClick={() => setIsDragOrderModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-800 rounded-xl text-xs font-semibold border border-purple-200 transition cursor-pointer shadow-2xs"
-                  title="مدیریت چیدمان و اولویت نمایش مخاطبین با Drag & Drop"
-                >
-                  <ArrowUpDown className="w-3.5 h-3.5 text-purple-600" />
-                  <span>مدیریت چیدمان</span>
-                </button>
-              )}
-
               {/* Add New Contact Button */}
               <button
                 id="add-contact-btn"
@@ -1324,19 +1354,6 @@ export default function App() {
                 {sortOrder === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
               </button>
             </div>
-
-            {/* Quick Layout Reorder modal trigger if admin */}
-            {currentUser?.role === 'admin' && (
-              <button
-                type="button"
-                onClick={() => setIsDragOrderModalOpen(true)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg text-xs font-medium transition cursor-pointer shadow-2xs"
-                title="تغییر ترتیب نمایش و چیدمان مخاطبین با Drag & Drop"
-              >
-                <ArrowUpDown className="w-3 h-3" />
-                <span>ویرایش چیدمان</span>
-              </button>
-            )}
 
             {/* Page Size */}
             <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-lg px-2 py-1 shadow-2xs">
