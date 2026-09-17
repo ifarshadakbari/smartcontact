@@ -24,6 +24,7 @@ class Contact extends Model
         'avatar',
         'contact_type',
         'domain',
+        'domain_id',
         'is_favorite',
         'created_by_user_id',
         'is_public',
@@ -37,10 +38,16 @@ class Contact extends Model
         'is_favorite' => 'boolean',
         'is_public' => 'boolean',
         'display_order' => 'integer',
+        'domain_id' => 'integer',
     ];
 
     public function favoritedByUsers()
     {
         return $this->belongsToMany(User::class, 'contact_favorites')->withTimestamps();
+    }
+
+    public function ldapDomain()
+    {
+        return $this->belongsTo(Department::class, 'domain_id'); // Or directly join ldap_domains
     }
 }

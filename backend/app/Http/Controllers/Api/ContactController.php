@@ -61,18 +61,39 @@ class ContactController extends Controller
         // استخراج شناسه‌های مخاطبان نشان‌شده کاربر جاری از جدول واسط contact_favorites
         $userFavIds = $user ? $user->favoriteContacts()->pluck('contacts.id')->toArray() : [];
 
-        // افزودن وضعیت اختصاصی is_favorite به هر مخاطب برای این کاربر
+        // افزودن وضعیت اختصاصی is_favorite به هر مخاطب برای این کاربر و پر کردن ساختار استاندارد دامین
         if (Schema::hasColumn('contacts', 'display_order')) {
             $query->orderBy('display_order', 'asc');
         }
-        $contacts = $query->orderBy('id', 'desc')->get()->map(function ($contact) use ($user, $userFavIds) {
+
+        $ldapDomains = Schema::hasTable('ldap_domains') ? DB::table('ldap_domains')->get()->keyBy('id') : collect();
+
+        $contacts = $query->orderBy('id', 'desc')->get()->map(function ($contact) use ($user, $userFavIds, $ldapDomains) {
             if ($user) {
                 $contact->is_favorite = in_array($contact->id, $userFavIds);
             } else {
                 $contact->is_favorite = (bool) $contact->is_favorite;
             }
-            $contact->domain_id = $contact->domain;
-            $contact->domain_name = $contact->domain;
+
+            // تعیین و همگام‌سازی domain_id و domain_name
+            $domainObj = null;
+            if (!empty($contact->domain_id) && isset($ldapDomains[$contact->domain_id])) {
+                $domainObj = $ldapDomains[$contact->domain_id];
+            } elseif (!empty($contact->domain)) {
+                $domainObj = $ldapDomains->first(function ($d) use ($contact) {
+                    return (string)$d->id === (string)$contact->domain || $d->name === $contact->domain || $d->display_name === $contact->domain;
+                });
+            }
+
+            if ($domainObj) {
+                $contact->domain_id = $domainObj->id;
+                $contact->domain_name = $domainObj->display_name ?? $domainObj->name;
+                $contact->domain = $domainObj->name;
+            } else {
+                $contact->domain_id = $contact->domain_id ?? (is_numeric($contact->domain) ? (int)$contact->domain : null);
+                $contact->domain_name = $contact->domain ?? null;
+            }
+
             return $contact;
         });
 
@@ -101,16 +122,50 @@ class ContactController extends Controller
             'avatar'           => 'nullable|string',
             'contact_type'     => 'nullable|string|in:internal,external',
             'domain'           => 'nullable|string|max:100',
-            'domain_id'        => 'nullable|string|max:100',
+            'domain_id'        => 'nullable|max:100',
             'domain_name'      => 'nullable|string|max:100',
             'is_public'        => 'nullable|boolean',
             'is_favorite'      => 'nullable|boolean',
         ]);
 
-        if (empty($validated['domain'])) {
-            $validated['domain'] = $request->input('domain') ?? $request->input('domain_name') ?? $request->input('domain_id') ?? null;
+        // تطبیق و استخراج domain_id عددی و نام دامین
+        $rawDomainId = $request->input('domain_id');
+        $rawDomain = $request->input('domain') ?? $request->input('domain_name');
+
+        $resolvedDomainId = null;
+        $resolvedDomainName = null;
+
+        if (Schema::hasTable('ldap_domains')) {
+            $domRecord = null;
+            if (!empty($rawDomainId)) {
+                $domRecord = DB::table('ldap_domains')->where('id', $rawDomainId)->first();
+            }
+            if (!$domRecord && !empty($rawDomain)) {
+                $domRecord = DB::table('ldap_domains')
+                    ->where('id', (string)$rawDomain)
+                    ->orWhere('name', $rawDomain)
+                    ->orWhere('display_name', $rawDomain)
+                    ->first();
+            }
+
+            if ($domRecord) {
+                $resolvedDomainId = $domRecord->id;
+                $resolvedDomainName = $domRecord->name;
+                $validated['domain'] = $domRecord->name;
+                if (Schema::hasColumn('contacts', 'domain_id')) {
+                    $validated['domain_id'] = $domRecord->id;
+                }
+            } else {
+                $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+                if (Schema::hasColumn('contacts', 'domain_id')) {
+                    $validated['domain_id'] = is_numeric($rawDomainId) ? (int)$rawDomainId : null;
+                }
+            }
+        } else {
+            $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
         }
-        unset($validated['domain_id'], $validated['domain_name']);
+
+        unset($validated['domain_name']);
 
         if ($user) {
             $validated['created_by_user_id'] = $user->id;
@@ -118,8 +173,8 @@ class ContactController extends Controller
 
         $contact = Contact::create($validated);
         $contact->is_favorite = false;
-        $contact->domain_id = $contact->domain;
-        $contact->domain_name = $contact->domain;
+        $contact->domain_id = $contact->domain_id ?? $resolvedDomainId ?? (is_numeric($contact->domain) ? (int)$contact->domain : null);
+        $contact->domain_name = $resolvedDomainName ?? $contact->domain;
 
         return response()->json([
             'status'  => 'success',
@@ -165,8 +220,29 @@ class ContactController extends Controller
         } else {
             $contact->is_favorite = false;
         }
-        $contact->domain_id = $contact->domain;
-        $contact->domain_name = $contact->domain;
+
+        $domainObj = null;
+        if (Schema::hasTable('ldap_domains')) {
+            if (!empty($contact->domain_id)) {
+                $domainObj = DB::table('ldap_domains')->where('id', $contact->domain_id)->first();
+            }
+            if (!$domainObj && !empty($contact->domain)) {
+                $domainObj = DB::table('ldap_domains')
+                    ->where('id', (string)$contact->domain)
+                    ->orWhere('name', $contact->domain)
+                    ->orWhere('display_name', $contact->domain)
+                    ->first();
+            }
+        }
+
+        if ($domainObj) {
+            $contact->domain_id = $domainObj->id;
+            $contact->domain_name = $domainObj->display_name ?? $domainObj->name;
+            $contact->domain = $domainObj->name;
+        } else {
+            $contact->domain_id = $contact->domain_id ?? (is_numeric($contact->domain) ? (int)$contact->domain : null);
+            $contact->domain_name = $contact->domain;
+        }
 
         return response()->json([
             'status' => 'success',
@@ -207,19 +283,56 @@ class ContactController extends Controller
             'avatar'           => 'nullable|string',
             'contact_type'     => 'nullable|string|in:internal,external',
             'domain'           => 'nullable|string|max:100',
-            'domain_id'        => 'nullable|string|max:100',
+            'domain_id'        => 'nullable|max:100',
             'domain_name'      => 'nullable|string|max:100',
             'is_public'        => 'nullable|boolean',
             'is_favorite'      => 'nullable|boolean',
         ]);
 
         if ($request->has('domain') || $request->has('domain_id') || $request->has('domain_name')) {
-            $validated['domain'] = $request->input('domain') ?? $request->input('domain_name') ?? $request->input('domain_id') ?? null;
+            $rawDomainId = $request->input('domain_id');
+            $rawDomain = $request->input('domain') ?? $request->input('domain_name');
+
+            $resolvedDomainId = null;
+            $resolvedDomainName = null;
+
+            if (Schema::hasTable('ldap_domains')) {
+                $domRecord = null;
+                if (!empty($rawDomainId)) {
+                    $domRecord = DB::table('ldap_domains')->where('id', $rawDomainId)->first();
+                }
+                if (!$domRecord && !empty($rawDomain)) {
+                    $domRecord = DB::table('ldap_domains')
+                        ->where('id', (string)$rawDomain)
+                        ->orWhere('name', $rawDomain)
+                        ->orWhere('display_name', $rawDomain)
+                        ->first();
+                }
+
+                if ($domRecord) {
+                    $resolvedDomainId = $domRecord->id;
+                    $resolvedDomainName = $domRecord->name;
+                    $validated['domain'] = $domRecord->name;
+                    if (Schema::hasColumn('contacts', 'domain_id')) {
+                        $validated['domain_id'] = $domRecord->id;
+                    }
+                } else {
+                    $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+                    if (Schema::hasColumn('contacts', 'domain_id')) {
+                        $validated['domain_id'] = is_numeric($rawDomainId) ? (int)$rawDomainId : null;
+                    }
+                }
+            } else {
+                $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+            }
         }
-        unset($validated['domain_id'], $validated['domain_name']);
+
+        unset($validated['domain_name']);
 
         $contact->update($validated);
-        $contact->domain_id = $contact->domain;
+
+        // آماده‌سازی فیلدهای خروجی
+        $contact->domain_id = $contact->domain_id ?? (is_numeric($contact->domain) ? (int)$contact->domain : null);
         $contact->domain_name = $contact->domain;
 
         return response()->json([
