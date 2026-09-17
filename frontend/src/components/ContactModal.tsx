@@ -146,7 +146,13 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
     if (contact) {
       setContactType(contact.contact_type || 'internal');
-      setDomainId(contact.domain_id || (ldapDomains[0]?.id || ''));
+      const foundDom = ldapDomains.find(
+        (d) =>
+          (contact.domain_id && String(d.id) === String(contact.domain_id)) ||
+          (contact.domain && (String(d.id) === String(contact.domain) || d.name === contact.domain)) ||
+          (contact.domain_name && (d.name === contact.domain_name || d.display_name === contact.domain_name))
+      );
+      setDomainId(foundDom ? String(foundDom.id) : (contact.domain_id || contact.domain || (ldapDomains[0]?.id ? String(ldapDomains[0].id) : '')));
       setCompanyName(contact.company_name || '');
       setHasLdapAccount(contact.has_ldap_account ?? true);
       setLdapUsername(contact.ldap_username || '');
@@ -488,14 +494,22 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       return;
     }
 
-    const matchedDomain = ldapDomains.find((d) => d.id === domainId);
+    const matchedDomain = ldapDomains.find(
+      (d) => String(d.id) === String(domainId) || d.name === domainId
+    );
+    const resolvedDomain = matchedDomain ? (matchedDomain.name || String(matchedDomain.id)) : (domainId || undefined);
+    const resolvedDomainId = matchedDomain ? String(matchedDomain.id) : (domainId || undefined);
+    const resolvedDomainName = matchedDomain
+      ? (matchedDomain.display_name || matchedDomain.name)
+      : undefined;
 
     const payload: Contact = {
       ...(contact || {}),
       id: contact?.id || Date.now(),
       contact_type: contactType,
-      domain_id: contactType === 'internal' ? domainId : undefined,
-      domain_name: contactType === 'internal' ? (matchedDomain?.domain_name || matchedDomain?.title || undefined) : undefined,
+      domain: contactType === 'internal' ? resolvedDomain : undefined,
+      domain_id: contactType === 'internal' ? resolvedDomainId : undefined,
+      domain_name: contactType === 'internal' ? resolvedDomainName : undefined,
       company_name: contactType === 'external' ? companyName.trim() : undefined,
       has_ldap_account:
         contactType === 'internal'

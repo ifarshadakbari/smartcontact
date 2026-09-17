@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -70,6 +71,8 @@ class ContactController extends Controller
             } else {
                 $contact->is_favorite = (bool) $contact->is_favorite;
             }
+            $contact->domain_id = $contact->domain;
+            $contact->domain_name = $contact->domain;
             return $contact;
         });
 
@@ -98,9 +101,16 @@ class ContactController extends Controller
             'avatar'           => 'nullable|string',
             'contact_type'     => 'nullable|string|in:internal,external',
             'domain'           => 'nullable|string|max:100',
+            'domain_id'        => 'nullable|string|max:100',
+            'domain_name'      => 'nullable|string|max:100',
             'is_public'        => 'nullable|boolean',
             'is_favorite'      => 'nullable|boolean',
         ]);
+
+        if (empty($validated['domain'])) {
+            $validated['domain'] = $request->input('domain') ?? $request->input('domain_name') ?? $request->input('domain_id') ?? null;
+        }
+        unset($validated['domain_id'], $validated['domain_name']);
 
         if ($user) {
             $validated['created_by_user_id'] = $user->id;
@@ -108,6 +118,8 @@ class ContactController extends Controller
 
         $contact = Contact::create($validated);
         $contact->is_favorite = false;
+        $contact->domain_id = $contact->domain;
+        $contact->domain_name = $contact->domain;
 
         return response()->json([
             'status'  => 'success',
@@ -153,6 +165,8 @@ class ContactController extends Controller
         } else {
             $contact->is_favorite = false;
         }
+        $contact->domain_id = $contact->domain;
+        $contact->domain_name = $contact->domain;
 
         return response()->json([
             'status' => 'success',
@@ -193,11 +207,20 @@ class ContactController extends Controller
             'avatar'           => 'nullable|string',
             'contact_type'     => 'nullable|string|in:internal,external',
             'domain'           => 'nullable|string|max:100',
+            'domain_id'        => 'nullable|string|max:100',
+            'domain_name'      => 'nullable|string|max:100',
             'is_public'        => 'nullable|boolean',
             'is_favorite'      => 'nullable|boolean',
         ]);
 
+        if ($request->has('domain') || $request->has('domain_id') || $request->has('domain_name')) {
+            $validated['domain'] = $request->input('domain') ?? $request->input('domain_name') ?? $request->input('domain_id') ?? null;
+        }
+        unset($validated['domain_id'], $validated['domain_name']);
+
         $contact->update($validated);
+        $contact->domain_id = $contact->domain;
+        $contact->domain_name = $contact->domain;
 
         return response()->json([
             'status'  => 'success',

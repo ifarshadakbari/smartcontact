@@ -235,11 +235,11 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                       </div>
 
                       {/* Fixed Phone Actions (Call + Copy) directly aligned with Fixed Phone */}
-                      <div className="flex items-center gap-1 shrink-0">
+                      <div className="flex items-center gap-1 shrink-0 w-[68px] justify-end">
                         <button
                           type="button"
                           onClick={(e) => handleCallClick(e, item.phone, item.title || 'تلفن ثابت')}
-                          className="p-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 transition cursor-pointer text-xs"
+                          className="w-8 h-8 flex items-center justify-center bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 transition cursor-pointer text-xs shrink-0"
                           title={
                             currentUser
                               ? 'تماس مستقیم با این خط تلفن از روی IP Phone شما'
@@ -252,7 +252,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                         <button
                           type="button"
                           onClick={(e) => handleCopy(e, item.phone, `phone-${contact.id}-${idx}`)}
-                          className="p-1.5 bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-neutral-600 hover:text-neutral-900 transition cursor-pointer text-xs"
+                          className="w-8 h-8 flex items-center justify-center bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-neutral-600 hover:text-neutral-900 transition cursor-pointer text-xs shrink-0"
                           title="کپی شماره تلفن ثابت"
                         >
                           {copiedKey === `phone-${contact.id}-${idx}` ? (
@@ -285,15 +285,15 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                         <button
                           type="button"
                           onClick={(e) => handleCallClick(e, item.extension!, `داخلی ${item.extension}`)}
-                          className="text-xs px-3 py-1 rounded-lg border border-emerald-300 inline-flex items-center justify-center gap-1.5 transition cursor-pointer font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 min-h-[32px] shrink-0"
+                          className="w-[68px] h-8 rounded-lg border border-emerald-300 inline-flex items-center justify-center gap-1 transition cursor-pointer font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 shrink-0 text-xs"
                           title={
                             currentUser
                               ? 'تماس مستقیم با این داخلی از طریق IP Phone شما'
                               : 'برای تماس خودکار VoIP، وارد شوید'
                           }
                         >
-                          <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>تماس با داخلی</span>
+                          <PhoneCall className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="text-[11px] leading-none whitespace-nowrap">تماس</span>
                         </button>
                       )}
                     </div>
