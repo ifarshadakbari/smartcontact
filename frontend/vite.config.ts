@@ -2,11 +2,21 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import {createApiMiddleware} from './devApiMiddleware';
 
 export default defineConfig(() => {
   return {
     base: '/webapp/smartcontact/',
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'dev-api-server',
+        configureServer(server) {
+          server.middlewares.use(createApiMiddleware());
+        },
+      },
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

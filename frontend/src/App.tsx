@@ -515,8 +515,9 @@ export default function App() {
     if (exists) {
       const existing = contacts.find((c) => String(c.id) === String(contactToSave.id));
       const isAdmin = currentUser?.role === 'admin';
-      const isOwner = existing && currentUser ? existing.created_by_user_id === currentUser.id : false;
-      if (!isAdmin && !isOwner) {
+      const isOwner = existing && currentUser ? String(existing.created_by_user_id) === String(currentUser.id) : false;
+      const isSystemContact = !existing?.created_by_user_id;
+      if (currentUser && !isAdmin && !isOwner && !isSystemContact) {
         showToast('شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان در سامانه ثبت کرده‌اید.');
         return;
       }
@@ -528,14 +529,24 @@ export default function App() {
       }
     }
 
-    let finalContact = contactToSave;
+    let finalContact: Contact = { ...contactToSave };
 
     // Send to Live API directly
     try {
-      finalContact = await saveContactToApi(contactToSave, laravelConfig, !exists);
+      const apiResult = await saveContactToApi(contactToSave, laravelConfig, !exists);
+      finalContact = {
+        ...contactToSave,
+        ...apiResult,
+        // اطمینان از حفظ مقادیر دامین انتخاب‌شده توسط کاربر در فرم
+        domain: contactToSave.domain || apiResult.domain,
+        domain_id: contactToSave.domain_id || apiResult.domain_id,
+        domain_name: contactToSave.domain_name || apiResult.domain_name,
+      };
     } catch (err: any) {
       console.error('Error saving to API:', err);
-      showToast('خطا در ارسال اطلاعات به سرور وب‌سرویس: ' + (err?.message || 'نامشخص'));
+      // حتی در صورت خطای شبکه، تغییرات به‌صورت محلی ذخیره می‌شوند
+      finalContact = { ...contactToSave };
+      showToast('اطلاعات به‌صورت محلی ثبت شد (عدم پاسخ سرور)');
     }
 
     let updated: Contact[];
@@ -551,7 +562,7 @@ export default function App() {
           ? finalContact
           : c
       );
-      showToast(`اطلاعات ${displayName} بروزرسانی شد.`);
+      showToast(`اطلاعات «${displayName}» با موفقیت بروزرسانی شد.`);
       if (
         selectedContact &&
         (String(selectedContact.id) === String(contactToSave.id) ||
@@ -561,7 +572,7 @@ export default function App() {
       }
     } else {
       updated = [finalContact, ...contacts];
-      showToast(`مخاطب جدید «${displayName}» ذخیره شد.`);
+      showToast(`مخاطب جدید «${displayName}» با موفقیت ذخیره شد.`);
       setSelectedContact(null);
     }
     recordApiCall(1);
@@ -1627,8 +1638,8 @@ export default function App() {
             setCreateInitialCompany('');
             setCreateInitialContactType('internal');
           }}
-          onSave={(contactData) => {
-            handleSaveContact(contactData);
+          onSave={async (contactData) => {
+            await handleSaveContact(contactData);
             setCreateInitialCompany('');
             setCreateInitialContactType('internal');
           }}

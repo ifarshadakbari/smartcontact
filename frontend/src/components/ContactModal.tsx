@@ -81,11 +81,14 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   onSelectContact,
 }) => {
   const isAdmin = currentUser ? currentUser.role === 'admin' : false;
-  const isOwner = contact && currentUser ? contact.created_by_user_id === currentUser.id : false;
-  // کاربر عادی فقط مخاطبی را که خودش ثبت کرده می‌تواند ویرایش یا حذف کند (کاربر ادمین همه را می‌تواند)
-  const canEdit = isCreateMode ? Boolean(currentUser) : Boolean(currentUser && (isAdmin || isOwner));
+  const isOwner = contact && currentUser ? String(contact.created_by_user_id) === String(currentUser.id) : false;
+  // مخاطبینی که ثبت‌کننده مشخص ندارند (مانند مخاطبین سیستمی/LDAP/نمونه اولیه)، توسط ادمین یا کاربر واردشده قابل ویرایش هستند
+  const isSystemContact = !contact?.created_by_user_id;
+  const canEdit = isCreateMode
+    ? Boolean(currentUser)
+    : Boolean(currentUser && (isAdmin || isOwner || isSystemContact));
   const canDelete = !isCreateMode && Boolean(currentUser && (isAdmin || isOwner));
-  const canEditPersonnelCode = isCreateMode ? true : (isAdmin || isOwner);
+  const canEditPersonnelCode = isCreateMode ? true : (isAdmin || isOwner || isSystemContact);
 
   const effectiveDepartments =
     departments && departments.length > 0
@@ -148,11 +151,11 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       setContactType(contact.contact_type || 'internal');
       const foundDom = ldapDomains.find(
         (d) =>
-          (contact.domain_id && String(d.id) === String(contact.domain_id)) ||
-          (contact.domain && (String(d.id) === String(contact.domain) || d.name === contact.domain)) ||
-          (contact.domain_name && (d.name === contact.domain_name || d.display_name === contact.domain_name))
+          (contact.domain_id !== undefined && contact.domain_id !== null && contact.domain_id !== '' && String(d.id) === String(contact.domain_id)) ||
+          (contact.domain && (String(d.id) === String(contact.domain) || d.name?.toLowerCase() === String(contact.domain).toLowerCase())) ||
+          (contact.domain_name && (d.name?.toLowerCase() === String(contact.domain_name).toLowerCase() || d.display_name === contact.domain_name))
       );
-      setDomainId(foundDom ? String(foundDom.id) : (contact.domain_id || contact.domain || (ldapDomains[0]?.id ? String(ldapDomains[0].id) : '')));
+      setDomainId(foundDom ? String(foundDom.id) : (contact.domain_id ? String(contact.domain_id) : (contact.domain ? String(contact.domain) : (ldapDomains[0]?.id ? String(ldapDomains[0].id) : ''))));
       setCompanyName(contact.company_name || '');
       setHasLdapAccount(contact.has_ldap_account ?? true);
       setLdapUsername(contact.ldap_username || '');
@@ -166,11 +169,29 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       setLocation(contact.location || '');
       setMobiles(contact.mobiles && contact.mobiles.length > 0 ? contact.mobiles : ['']);
       setIsMobilePublic(contact.is_mobile_public ?? false);
-      setLandlines(
+
+      const normalizedLandlines: LandlineEntry[] =
         contact.landlines && contact.landlines.length > 0
-          ? contact.landlines
-          : [{ id: '1', phone: '', extension: '', title: '' }]
-      );
+          ? contact.landlines.map((l: any, idx: number) => {
+              let phone = String(l?.phone || '').trim();
+              let extension = String(l?.extension || '').trim();
+              if (!phone && !extension && l?.number) {
+                const num = String(l.number).trim();
+                if (num.length <= 4 && !num.startsWith('0')) {
+                  extension = num;
+                } else {
+                  phone = num;
+                }
+              }
+              return {
+                id: String(l?.id || idx + 1),
+                phone,
+                extension,
+                title: l?.title ? String(l.title).trim() : '',
+              };
+            })
+          : [{ id: '1', phone: '', extension: '', title: '' }];
+      setLandlines(normalizedLandlines);
       setEmail(contact.email || '');
       setDescription(contact.description || '');
       setAvatar(contact.avatar);
@@ -423,126 +444,147 @@ export const ContactModal: React.FC<ContactModalProps> = ({
     }
     setValidationError(null);
 
-    // بررسی مجوز ویرایش مخاطب
-    if (!canEdit) {
-      setValidationError(
-        currentUser
-          ? 'شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان در سامانه ثبت کرده‌اید.'
-          : 'برای ویرایش مخاطب لطفاً ابتدا وارد حساب کاربری خود شوید.'
-      );
-      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    // * Check Required Fields
-    const isLocationContact = prefixTitle === 'location';
-    if (isLocationContact) {
-      if (!firstName.trim()) {
-        setValidationError('لطفاً عنوان یا نام مکان را وارد نمایید.');
-        modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-    } else {
-      if (!firstName.trim() || !lastName.trim()) {
-        setValidationError('لطفاً نام و نام خانوادگی را وارد نمایید.');
-        modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-    }
-
-    // ** Personnel code check: Only validate and update if user has permission to edit personnel code
-    const cleanPersonnelCode = canEditPersonnelCode
-      ? normalizePhoneNumber(personnelCode.trim())
-      : (contact?.personnel_code || '');
-
-    if (canEditPersonnelCode && contactType === 'internal' && cleanPersonnelCode) {
-      if (allContacts && allContacts.length > 0) {
-        const isDuplicate = allContacts.some(
-          (c) =>
-            String(c.id) !== String(contact?.id) &&
-            c.contact_type === 'internal' &&
-            c.personnel_code &&
-            normalizePhoneNumber(c.personnel_code.trim()).toLowerCase() === cleanPersonnelCode.toLowerCase()
+    try {
+      // بررسی مجوز ویرایش مخاطب
+      if (!canEdit) {
+        setValidationError(
+          currentUser
+            ? 'شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان در سامانه ثبت کرده‌اید.'
+            : 'برای ویرایش مخاطب لطفاً ابتدا وارد حساب کاربری خود شوید.'
         );
-        if (isDuplicate) {
-          setValidationError(
-            `کد پرسنلی «${cleanPersonnelCode}» قبلاً برای پرسنل دیگری ثبت گردیده است. لطفاً کد پرسنلی یکتا وارد نمایید.`
-          );
+        modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      const rawFirstName = String(firstName || '').trim();
+      const rawLastName = String(lastName || '').trim();
+
+      // * Check Required Fields
+      const isLocationContact = prefixTitle === 'location';
+      if (isLocationContact) {
+        if (!rawFirstName) {
+          setValidationError('لطفاً عنوان یا نام مکان را وارد نمایید.');
+          modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+      } else {
+        if (!rawFirstName || !rawLastName) {
+          setValidationError('لطفاً نام و نام خانوادگی را وارد نمایید.');
           modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
           return;
         }
       }
-    }
 
-    // Filter non-empty mobiles and landlines (automatically normalizing Iranian mobile format)
-    const validMobiles = mobiles
-      .map((m) => {
-        const trimmed = m.trim();
-        return isValidIranianMobile(trimmed) ? formatIranianMobile(trimmed) : trimmed;
-      })
-      .filter(Boolean);
-    const validLandlines = landlines.filter(
-      (l) => l.phone.trim() !== '' || l.extension.trim() !== ''
-    );
+      // ** Personnel code check: Only validate and update if user has permission to edit personnel code
+      const cleanPersonnelCode = canEditPersonnelCode
+        ? normalizePhoneNumber(String(personnelCode || '').trim())
+        : String(contact?.personnel_code || '');
 
-    // *** Check: At least one mobile OR at least one landline required
-    if (validMobiles.length === 0 && validLandlines.length === 0) {
-      setValidationError(
-        'ثبت حداقل یکی از موارد «شماره همراه» یا «خط تلفن ثابت و داخلی» الزامی می‌باشد.'
+      if (canEditPersonnelCode && contactType === 'internal' && cleanPersonnelCode) {
+        if (allContacts && allContacts.length > 0) {
+          const isDuplicate = allContacts.some(
+            (c) =>
+              String(c.id) !== String(contact?.id) &&
+              c.contact_type === 'internal' &&
+              c.personnel_code &&
+              normalizePhoneNumber(String(c.personnel_code).trim()).toLowerCase() === cleanPersonnelCode.toLowerCase()
+          );
+          if (isDuplicate) {
+            setValidationError(
+              `کد پرسنلی «${cleanPersonnelCode}» قبلاً برای پرسنل دیگری ثبت گردیده است. لطفاً کد پرسنلی یکتا وارد نمایید.`
+            );
+            modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+          }
+        }
+      }
+
+      // Filter non-empty mobiles and landlines (automatically normalizing Iranian mobile format)
+      const validMobiles = (mobiles || [])
+        .map((m) => {
+          const trimmed = String(m || '').trim();
+          return isValidIranianMobile(trimmed) ? formatIranianMobile(trimmed) : trimmed;
+        })
+        .filter(Boolean);
+
+      const validLandlines = (landlines || [])
+        .map((l: any, idx: number) => ({
+          id: String(l?.id || idx + 1),
+          phone: String(l?.phone || l?.number || '').trim(),
+          extension: String(l?.extension || '').trim(),
+          title: l?.title ? String(l.title).trim() : undefined,
+        }))
+        .filter((l) => l.phone !== '' || l.extension !== '');
+
+      // *** Check: At least one mobile OR at least one landline required
+      if (validMobiles.length === 0 && validLandlines.length === 0) {
+        setValidationError(
+          'ثبت حداقل یکی از موارد «شماره همراه» یا «خط تلفن ثابت و داخلی» الزامی می‌باشد.'
+        );
+        modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+
+      const matchedDomain = ldapDomains.find(
+        (d) =>
+          String(d.id) === String(domainId) ||
+          d.name?.toLowerCase() === String(domainId).toLowerCase() ||
+          d.display_name === domainId
       );
+      const resolvedDomain = matchedDomain ? (matchedDomain.name || String(matchedDomain.id)) : (domainId || undefined);
+      const resolvedDomainId = matchedDomain ? String(matchedDomain.id) : (domainId || undefined);
+      const resolvedDomainName = matchedDomain
+        ? (matchedDomain.display_name || matchedDomain.name)
+        : undefined;
+
+      const payload: Contact = {
+        ...(contact || {}),
+        id: contact?.id || Date.now(),
+        contact_type: contactType,
+        domain: contactType === 'internal' ? resolvedDomain : undefined,
+        domain_id: contactType === 'internal' ? resolvedDomainId : undefined,
+        domain_name: contactType === 'internal' ? resolvedDomainName : undefined,
+        company_name: contactType === 'external' ? String(companyName || '').trim() : undefined,
+        has_ldap_account:
+          contactType === 'internal'
+            ? (isAdmin ? hasLdapAccount : (isCreateMode ? false : (contact?.has_ldap_account ?? false)))
+            : false,
+        ldap_username: contactType === 'internal' && hasLdapAccount ? (String(ldapUsername || '').trim() || undefined) : undefined,
+        personnel_code: contactType === 'internal' ? cleanPersonnelCode : (cleanPersonnelCode || undefined),
+        prefix_title: prefixTitle,
+        first_name: rawFirstName,
+        last_name: prefixTitle === 'location' ? (rawLastName || '-') : rawLastName,
+        job_title: String(jobTitle || '').trim() || undefined,
+        department: department || 'سایر',
+        location: String(location || '').trim() || undefined,
+        mobiles: validMobiles,
+        is_mobile_public: contactType === 'internal' ? isMobilePublic : true,
+        personal_mobiles: contact?.personal_mobiles || {},
+        landlines: validLandlines,
+        email: String(email || '').trim() || undefined,
+        description: String(description || '').trim() || undefined,
+        avatar,
+        is_favorite: isFavorite,
+        created_by_user_id: contact?.created_by_user_id ?? (currentUser?.id || 1),
+        created_by_user_name: contact?.created_by_user_name ?? (currentUser?.name || 'مدیر سیستم'),
+        is_public: isPublic,
+      };
+
+      setIsSaving(true);
+      try {
+        await onSave(payload);
+        setIsEditing(false);
+      } catch (err: any) {
+        console.error('Error in onSave inside ContactModal:', err);
+        setValidationError(err?.message || 'خطا در ذخیره اطلاعات مخاطب');
+        modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      } finally {
+        setIsSaving(false);
+      }
+    } catch (unexpectedErr: any) {
+      console.error('Unexpected error in ContactModal handleSubmit:', unexpectedErr);
+      setValidationError(unexpectedErr?.message || 'خطای سیستمی در پردازش اطلاعات فرم.');
       modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    const matchedDomain = ldapDomains.find(
-      (d) => String(d.id) === String(domainId) || d.name === domainId
-    );
-    const resolvedDomain = matchedDomain ? (matchedDomain.name || String(matchedDomain.id)) : (domainId || undefined);
-    const resolvedDomainId = matchedDomain ? String(matchedDomain.id) : (domainId || undefined);
-    const resolvedDomainName = matchedDomain
-      ? (matchedDomain.display_name || matchedDomain.name)
-      : undefined;
-
-    const payload: Contact = {
-      ...(contact || {}),
-      id: contact?.id || Date.now(),
-      contact_type: contactType,
-      domain: contactType === 'internal' ? resolvedDomain : undefined,
-      domain_id: contactType === 'internal' ? resolvedDomainId : undefined,
-      domain_name: contactType === 'internal' ? resolvedDomainName : undefined,
-      company_name: contactType === 'external' ? companyName.trim() : undefined,
-      has_ldap_account:
-        contactType === 'internal'
-          ? (isAdmin ? hasLdapAccount : (isCreateMode ? false : (contact?.has_ldap_account ?? false)))
-          : false,
-      ldap_username: contactType === 'internal' && hasLdapAccount ? (ldapUsername.trim() || undefined) : undefined,
-      personnel_code: contactType === 'internal' ? cleanPersonnelCode : (cleanPersonnelCode || undefined),
-      prefix_title: prefixTitle,
-      first_name: firstName.trim(),
-      last_name: prefixTitle === 'location' ? (lastName.trim() || '-') : lastName.trim(),
-      job_title: jobTitle.trim() || undefined,
-      department: department || 'سایر',
-      location: location.trim() || undefined,
-      mobiles: validMobiles,
-      is_mobile_public: contactType === 'internal' ? isMobilePublic : true,
-      personal_mobiles: contact?.personal_mobiles || {},
-      landlines: validLandlines,
-      email: email.trim() || undefined,
-      description: description.trim() || undefined,
-      avatar,
-      is_favorite: isFavorite,
-      created_by_user_id: contact?.created_by_user_id ?? (currentUser?.id || 1),
-      created_by_user_name: contact?.created_by_user_name ?? (currentUser?.name || 'مدیر سیستم'),
-      is_public: isPublic,
-    };
-
-    setIsSaving(true);
-    try {
-      await onSave(payload);
-      setIsEditing(false);
-    } catch (err: any) {
-      setValidationError(err?.message || 'خطا در ذخیره اطلاعات مخاطب');
-    } finally {
       setIsSaving(false);
     }
   };
@@ -1202,7 +1244,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                         </label>
                         <input
                           type="text"
-                          value={landline.phone}
+                          value={landline.phone || ''}
                           onChange={(e) => handleUpdateLandline(idx, 'phone', e.target.value)}
                           placeholder="شماره مستقیم"
                           className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs font-mono text-neutral-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
@@ -1216,7 +1258,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                         </label>
                         <input
                           type="text"
-                          value={landline.extension}
+                          value={landline.extension || ''}
                           onChange={(e) => handleUpdateLandline(idx, 'extension', e.target.value)}
                           placeholder="داخلی"
                           className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs font-mono font-bold text-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
@@ -1976,9 +2018,13 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
             {isEditing && (
               <button
+                id="save-contact-submit-btn"
                 type="button"
                 disabled={isSaving}
-                onClick={() => handleSubmit()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition cursor-pointer flex items-center gap-1.5 shadow-sm"
               >
                 {isSaving ? (
