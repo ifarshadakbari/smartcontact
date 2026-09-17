@@ -14,7 +14,7 @@ export function getDomainDisplayName(
   const domainList = domains || [];
 
   // 1. Match by domain_id
-  if (contact.domain_id) {
+  if (contact.domain_id !== undefined && contact.domain_id !== null && contact.domain_id !== '') {
     const found = domainList.find((d) => String(d.id) === String(contact.domain_id));
     if (found) {
       return found.display_name || found.name;
@@ -22,7 +22,7 @@ export function getDomainDisplayName(
   }
 
   // 2. Match by domain_name
-  const cDom = (contact.domain || contact.domain_name || '').trim().toLowerCase();
+  const cDom = String(contact.domain || contact.domain_name || '').trim().toLowerCase();
   if (cDom) {
     const found = domainList.find(
       (d) =>
@@ -49,11 +49,14 @@ export function getDomainDisplayName(
  */
 export function matchContactToDomain(contact: Contact, domain: LdapDomain): boolean {
   if (contact.contact_type === 'external') return false;
-  if (contact.domain_id && String(contact.domain_id) === String(domain.id)) return true;
+  if (contact.domain_id !== undefined && contact.domain_id !== null && contact.domain_id !== '' && String(contact.domain_id) === String(domain.id)) {
+    return true;
+  }
 
-  const domName = (domain.name || '').trim().toLowerCase();
-  const domDisplay = (domain.display_name || '').trim().toLowerCase();
-  const cDomain = (contact.domain || contact.domain_name || '').trim().toLowerCase();
+  const domName = String(domain.name || '').trim().toLowerCase();
+  const domDisplay = String(domain.display_name || '').trim().toLowerCase();
+  const cDomain = String(contact.domain || contact.domain_name || '').trim().toLowerCase();
+  const cDomainId = contact.domain_id !== undefined && contact.domain_id !== null ? String(contact.domain_id).trim().toLowerCase() : '';
 
   if (cDomain && domName) {
     if (cDomain === domName || cDomain.includes(domName) || domName.includes(cDomain)) return true;
@@ -61,7 +64,7 @@ export function matchContactToDomain(contact: Contact, domain: LdapDomain): bool
   if (cDomain && domDisplay) {
     if (cDomain.includes(domDisplay) || domDisplay.includes(cDomain)) return true;
   }
-  if (contact.domain_id && domName && contact.domain_id.toLowerCase() === domName) return true;
+  if (cDomainId && domName && cDomainId === domName) return true;
 
   // If contact has no explicit domain and domain is default
   if (!contact.domain_id && !contact.domain && !contact.domain_name && domain.is_default) {

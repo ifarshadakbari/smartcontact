@@ -367,9 +367,11 @@ export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Conta
       description: cleanDesc,
       avatar: item.avatar || '',
       contact_type: item.contact_type || 'internal',
-      domain: item.domain || item.domain_name || item.domain_id || '',
-      domain_name: item.domain_name || item.domain || '',
-      domain_id: item.domain_id || item.domain || '',
+      domain: item.domain ? String(item.domain) : (item.domain_name ? String(item.domain_name) : (item.domain_id ? String(item.domain_id) : '')),
+      domain_name: item.domain_name ? String(item.domain_name) : (item.domain ? String(item.domain) : ''),
+      domain_id: item.domain_id !== undefined && item.domain_id !== null && item.domain_id !== ''
+        ? String(item.domain_id)
+        : (item.domain ? String(item.domain) : ''),
       company_name: item.company_name || '',
       is_favorite: Boolean(item.is_favorite),
       created_by_user_id: item.created_by_user_id,
@@ -575,9 +577,11 @@ export const saveContactToApi = async (
     ...contact,
     ...savedItem,
     id: savedItem.id || contact.id,
-    domain: savedItem.domain || contact.domain || '',
-    domain_id: savedItem.domain_id || contact.domain_id || savedItem.domain || contact.domain || '',
-    domain_name: savedItem.domain_name || contact.domain_name || savedItem.domain || contact.domain || '',
+    domain: savedItem.domain ? String(savedItem.domain) : (contact.domain ? String(contact.domain) : ''),
+    domain_id: savedItem.domain_id !== undefined && savedItem.domain_id !== null && savedItem.domain_id !== ''
+      ? String(savedItem.domain_id)
+      : (contact.domain_id ? String(contact.domain_id) : (savedItem.domain ? String(savedItem.domain) : '')),
+    domain_name: savedItem.domain_name ? String(savedItem.domain_name) : (contact.domain_name ? String(contact.domain_name) : ''),
     company_name: contact.contact_type === 'external' ? (contact.company_name || savedItem.company_name || '') : undefined,
     prefix_title: isResultLocation ? 'location' : (contact.prefix_title || savedItem.prefix_title || 'mr'),
     last_name: cleanSavedLastName,

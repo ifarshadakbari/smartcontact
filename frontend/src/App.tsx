@@ -701,7 +701,7 @@ export default function App() {
             if (!matchContactToDomain(contact, domObj)) return false;
           } else {
             if (contact.contact_type === 'external') return false;
-            if (contact.domain_id && contact.domain_id !== selectedCategory) return false;
+            if (contact.domain_id !== undefined && contact.domain_id !== null && String(contact.domain_id) !== String(selectedCategory)) return false;
           }
         }
       }

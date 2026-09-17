@@ -114,7 +114,7 @@ export const getMonitoredExtensionsData = (
       const { contact } = matched;
       // Strict domain boundary check:
       // If userDomainId is provided, prevent displaying extensions from other domains
-      if (userDomainId && contact.domain_id && contact.domain_id !== userDomainId) {
+      if (userDomainId && contact.domain_id && String(contact.domain_id) !== String(userDomainId)) {
         return;
       }
 
@@ -125,7 +125,7 @@ export const getMonitoredExtensionsData = (
         department: contact.department,
         jobTitle: contact.job_title,
         state: liveState.state,
-        domainId: contact.domain_id,
+        domainId: contact.domain_id ? String(contact.domain_id) : undefined,
         durationSec: liveState.durationSec,
         lastChanged: liveState.lastChanged,
       });
@@ -173,7 +173,7 @@ export const getAllAvailableInternalExtensions = (contacts: Contact[]): Internal
               name: `${c.first_name} ${c.last_name}`,
               department: c.department,
               jobTitle: c.job_title,
-              domainId: c.domain_id,
+              domainId: c.domain_id ? String(c.domain_id) : undefined,
               domainName: c.domain_name,
               contactId: c.id,
             });
