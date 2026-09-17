@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search,
   LayoutGrid,
@@ -63,7 +63,7 @@ import {
   calculateUsageStatus,
   recordApiCall,
 } from './services/rateLimitService';
-import { normalizeSearchText, normalizePhoneNumber, matchContactToDomain, deduplicateDepartments, isWirelessLine } from './utils/phoneUtils';
+import { normalizeSearchText, normalizePhoneNumber, matchContactToDomain, deduplicateDepartments, isWirelessLine, getUserDomainId } from './utils/phoneUtils';
 import { Navbar } from './components/Navbar';
 import { LoginPage } from './components/LoginPage';
 import { ContactCard } from './components/ContactCard';
@@ -149,16 +149,46 @@ export default function App() {
     );
   }, [currentUser?.id]);
 
+  // Track active user to set their default domain filter tab on login/session restoration
+  const activeUserDomainSetRef = useRef<number | string | null>(null);
+
   // View & Filter States
   const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all'); // 'all' | domain_id | 'external_all' | 'comp:NAME'
+  // Selected category / domain tab in phonebook (defaults to logged-in user's domain if authenticated)
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    const rememberedUser = getStoredAuthUser();
+    if (rememberedUser) {
+      const storedDomains = getStoredLdapDomains();
+      const domId = getUserDomainId(rememberedUser, storedDomains);
+      if (domId) return domId;
+    }
+    return 'all';
+  });
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'public'>('all');
   const [sortBy, setSortBy] = useState<'custom' | 'name' | 'personnel_code' | 'department' | 'created_at'>('custom');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(24);
+
+  // Synchronize default filter tab to logged-in user's domain upon login or restoration
+  useEffect(() => {
+    if (currentUser) {
+      if (activeUserDomainSetRef.current !== currentUser.id) {
+        activeUserDomainSetRef.current = currentUser.id;
+        const userDomainId = getUserDomainId(currentUser, ldapDomains, contacts);
+        if (userDomainId) {
+          setSelectedCategory(userDomainId);
+        }
+      }
+    } else {
+      if (activeUserDomainSetRef.current !== null) {
+        activeUserDomainSetRef.current = null;
+        setSelectedCategory('all');
+      }
+    }
+  }, [currentUser, ldapDomains, contacts]);
 
   // Modals & Panels
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
@@ -379,6 +409,11 @@ export default function App() {
       sessionStorage.setItem('enterprise_phonebook_auth_user_session', JSON.stringify(user));
       saveStoredAuthUser(null);
     }
+    activeUserDomainSetRef.current = user.id;
+    const userDomainId = getUserDomainId(user, ldapDomains, contacts);
+    if (userDomainId) {
+      setSelectedCategory(userDomainId);
+    }
     showToast(`ورود موفقیت‌آمیز: ${user.name} (${user.role === 'admin' ? 'مدیر سیستم' : 'پرسنل سازمانی'})`);
   };
 
@@ -388,6 +423,8 @@ export default function App() {
     sessionStorage.removeItem('enterprise_phonebook_auth_user_session');
     localStorage.removeItem('enterprise_phonebook_auth_token');
     sessionStorage.removeItem('enterprise_phonebook_auth_token');
+    activeUserDomainSetRef.current = null;
+    setSelectedCategory('all');
   };
 
   // Save Laravel Config

@@ -157,7 +157,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             localStorage.removeItem('enterprise_phonebook_auth_token');
           }
         }
-        onLoginSuccess(data.user, rememberMe);
+
+        const enrichedUser: User = {
+          ...data.user,
+          domain_id: data.user.domain_id || selectedDomainId,
+          domain: data.user.domain || currentDomain?.name || 'parszarasa.local',
+          domain_name: data.user.domain_name || currentDomain?.display_name || currentDomain?.name,
+        };
+
+        onLoginSuccess(enrichedUser, rememberMe);
         if (onClose) onClose();
         return;
       } else {

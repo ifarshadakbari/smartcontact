@@ -57,12 +57,15 @@ export interface Department {
 export interface User {
   id: number;
   name: string;
+  username?: string;
   email: string;
   personnel_code: string;
   role: 'admin' | 'staff' | 'viewer';
   department: string;
   avatar?: string;
   domain?: string; // دامین انتخابی کاربر در زمان لاگین LDAP
+  domain_id?: string | number; // شناسه دامین انتخابی
+  domain_name?: string; // عنوان نمایشی دامین
   auth_method?: 'ldap' | 'local'; // نحوه ورود
   extension?: string; // شماره داخلی تلفن رومیزی IP Phone خوانده‌شده از Active Directory (ipphone یا telephonenumber)
   can_view_blf?: boolean; // آیا دسترسی به نمایشگر وضعیت خطوط (BLF) دارد؟

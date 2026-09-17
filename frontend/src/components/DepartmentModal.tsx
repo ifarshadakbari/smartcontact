@@ -241,7 +241,7 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
             <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 space-y-3 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-blue-900">
-                  {isAdding ? 'افزودن واحد سازمانی جدید به پایگاه‌داده' : 'ویرایش واحد سازمانی در دیتابیس'}
+                  {isAdding ? 'افزودن واحد سازمانی جدید' : 'ویرایش واحد سازمانی'}
                 </span>
                 <button
                   type="button"
@@ -316,7 +316,7 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
                   className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs flex items-center gap-1.5"
                 >
                   <Database className="w-3.5 h-3.5" />
-                  <span>{isAdding ? 'ثبت و ذخیره در دیتابیس' : 'ذخیره تغییرات در دیتابیس'}</span>
+                  <span>{isAdding ? 'ثبت و ذخیره' : 'ذخیره تغییرات'}</span>
                 </button>
               </div>
             </div>
@@ -392,7 +392,7 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
               <span>پایگاه داده متمرکز و یکپارچگی ساختار سازمانی:</span>
             </p>
             <p>
-              تمام تغییرات واحدهای سازمانی به صورت خودکار در جدول <code className="font-mono text-neutral-900 bg-neutral-200 px-1 py-0.5 rounded text-[11px]">departments</code> دیتابیس ذخیره و برای کلیه کاربران و دامین‌های فعال همگام‌سازی می‌شوند.
+              تمام تغییرات واحدهای سازمانی در پایگاه داده ذخیره و برای کلیه کاربران و دامین‌های فعال همگام‌سازی می‌شوند.
             </p>
           </div>
         </div>

@@ -75,6 +75,73 @@ export function matchContactToDomain(contact: Contact, domain: LdapDomain): bool
 }
 
 /**
+ * Resolves the LDAP Domain ID that the logged-in user belongs to.
+ * Used to set the default selected domain filter tab upon user login or restore.
+ */
+export function getUserDomainId(
+  user: User | null,
+  domains: LdapDomain[],
+  contacts?: Contact[]
+): string | null {
+  if (!user || !domains || domains.length === 0) return null;
+
+  // 1. Direct domain_id if present on user
+  if (user.domain_id !== undefined && user.domain_id !== null && user.domain_id !== '') {
+    const dId = String(user.domain_id);
+    const found = domains.find((d) => String(d.id) === dId);
+    if (found) return String(found.id);
+  }
+
+  // 2. Direct domain name or display name on user
+  if (user.domain) {
+    const rawDom = user.domain.trim().toLowerCase();
+    const found = domains.find(
+      (d) =>
+        String(d.id) === rawDom ||
+        d.name?.toLowerCase() === rawDom ||
+        d.display_name?.toLowerCase() === rawDom ||
+        (d.base_dn && d.base_dn.toLowerCase().includes(rawDom))
+    );
+    if (found) return String(found.id);
+  }
+
+  // 3. User email domain
+  if (user.email && user.email.includes('@')) {
+    const emailDomain = user.email.split('@')[1]?.trim().toLowerCase();
+    if (emailDomain) {
+      const found = domains.find(
+        (d) =>
+          d.name?.toLowerCase() === emailDomain ||
+          emailDomain.includes(d.name?.toLowerCase() || '') ||
+          (d.name && d.name.toLowerCase().includes(emailDomain))
+      );
+      if (found) return String(found.id);
+    }
+  }
+
+  // 4. Check if user corresponds to a contact in contacts list
+  if (contacts && contacts.length > 0) {
+    const matchedContact = contacts.find(
+      (c) =>
+        (c.personnel_code && user.personnel_code && c.personnel_code === user.personnel_code) ||
+        (user.username && c.ldap_username && c.ldap_username.toLowerCase() === user.username.toLowerCase()) ||
+        (c.email && user.email && c.email.toLowerCase() === user.email.toLowerCase())
+    );
+    if (matchedContact) {
+      for (const dom of domains) {
+        if (matchContactToDomain(matchedContact, dom)) {
+          return String(dom.id);
+        }
+      }
+    }
+  }
+
+  // 5. If user has a default domain or first active domain
+  const defaultDom = domains.find((d) => d.is_default && d.is_active) || domains.find((d) => d.is_active);
+  return defaultDom ? String(defaultDom.id) : null;
+}
+
+/**
  * Detects if a landline entry title refers to a wireless line (بی سیم / بیسیم):
  * Checks for "بی سیم", "بیسیم", "بی‌سیم", "wireless", etc.
  * Supports string, array of landlines, or single landline object safely.
