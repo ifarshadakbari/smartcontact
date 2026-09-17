@@ -151,20 +151,29 @@ class ContactController extends Controller
             if ($domRecord) {
                 $resolvedDomainId = $domRecord->id;
                 $resolvedDomainName = $domRecord->name;
-                $validated['domain'] = $domRecord->name;
                 if (Schema::hasColumn('contacts', 'domain_id')) {
                     $validated['domain_id'] = $domRecord->id;
                 }
+                if (Schema::hasColumn('contacts', 'domain')) {
+                    $validated['domain'] = $domRecord->name;
+                }
             } else {
-                $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
                 if (Schema::hasColumn('contacts', 'domain_id')) {
                     $validated['domain_id'] = is_numeric($rawDomainId) ? (int)$rawDomainId : null;
                 }
+                if (Schema::hasColumn('contacts', 'domain')) {
+                    $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+                }
             }
         } else {
-            $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+            if (Schema::hasColumn('contacts', 'domain')) {
+                $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+            }
         }
 
+        if (!Schema::hasColumn('contacts', 'domain')) {
+            unset($validated['domain']);
+        }
         unset($validated['domain_name']);
 
         if ($user) {
@@ -173,8 +182,8 @@ class ContactController extends Controller
 
         $contact = Contact::create($validated);
         $contact->is_favorite = false;
-        $contact->domain_id = $contact->domain_id ?? $resolvedDomainId ?? (is_numeric($contact->domain) ? (int)$contact->domain : null);
-        $contact->domain_name = $resolvedDomainName ?? $contact->domain;
+        $contact->domain_id = $contact->domain_id ?? $resolvedDomainId ?? (isset($contact->domain) && is_numeric($contact->domain) ? (int)$contact->domain : null);
+        $contact->domain_name = $resolvedDomainName ?? $contact->domain_name ?? null;
 
         return response()->json([
             'status'  => 'success',
@@ -240,8 +249,8 @@ class ContactController extends Controller
             $contact->domain_name = $domainObj->display_name ?? $domainObj->name;
             $contact->domain = $domainObj->name;
         } else {
-            $contact->domain_id = $contact->domain_id ?? (is_numeric($contact->domain) ? (int)$contact->domain : null);
-            $contact->domain_name = $contact->domain;
+            $contact->domain_id = $contact->domain_id ?? (isset($contact->domain) && is_numeric($contact->domain) ? (int)$contact->domain : null);
+            $contact->domain_name = $contact->domain_name ?? null;
         }
 
         return response()->json([
@@ -312,28 +321,37 @@ class ContactController extends Controller
                 if ($domRecord) {
                     $resolvedDomainId = $domRecord->id;
                     $resolvedDomainName = $domRecord->name;
-                    $validated['domain'] = $domRecord->name;
                     if (Schema::hasColumn('contacts', 'domain_id')) {
                         $validated['domain_id'] = $domRecord->id;
                     }
+                    if (Schema::hasColumn('contacts', 'domain')) {
+                        $validated['domain'] = $domRecord->name;
+                    }
                 } else {
-                    $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
                     if (Schema::hasColumn('contacts', 'domain_id')) {
                         $validated['domain_id'] = is_numeric($rawDomainId) ? (int)$rawDomainId : null;
                     }
+                    if (Schema::hasColumn('contacts', 'domain')) {
+                        $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+                    }
                 }
             } else {
-                $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+                if (Schema::hasColumn('contacts', 'domain')) {
+                    $validated['domain'] = $rawDomain ?? (is_numeric($rawDomainId) ? (string)$rawDomainId : null);
+                }
             }
         }
 
+        if (!Schema::hasColumn('contacts', 'domain')) {
+            unset($validated['domain']);
+        }
         unset($validated['domain_name']);
 
         $contact->update($validated);
 
         // آماده‌سازی فیلدهای خروجی
-        $contact->domain_id = $contact->domain_id ?? (is_numeric($contact->domain) ? (int)$contact->domain : null);
-        $contact->domain_name = $contact->domain;
+        $contact->domain_id = $contact->domain_id ?? (isset($contact->domain) && is_numeric($contact->domain) ? (int)$contact->domain : null);
+        $contact->domain_name = $resolvedDomainName ?? $contact->domain_name ?? null;
 
         return response()->json([
             'status'  => 'success',

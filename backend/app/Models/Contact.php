@@ -31,6 +31,11 @@ class Contact extends Model
         'display_order',
     ];
 
+    protected $appends = [
+        'domain',
+        'domain_name',
+    ];
+
     // تبدیل خودکار JSON به آرایه در PHP و بالعکس
     protected $casts = [
         'mobiles' => 'array',
@@ -48,6 +53,38 @@ class Contact extends Model
 
     public function ldapDomain()
     {
-        return $this->belongsTo(Department::class, 'domain_id'); // Or directly join ldap_domains
+        return $this->belongsTo(LdapDomain::class, 'domain_id');
+    }
+
+    /**
+     * اکسسور سازگاری برای بازگرداندن نام FQDN دامین
+     */
+    public function getDomainAttribute()
+    {
+        return $this->ldapDomain ? $this->ldapDomain->name : null;
+    }
+
+    /**
+     * اکسسور سازگاری برای بازگرداندن نام فارسی دامین
+     */
+    public function getDomainNameAttribute()
+    {
+        return $this->ldapDomain ? ($this->ldapDomain->display_name ?? $this->ldapDomain->name) : null;
+    }
+
+    /**
+     * موتیتور برای تبدیل نام دامین ورودی به domain_id در صورت لزوم
+     */
+    public function setDomainAttribute($value)
+    {
+        if (!empty($value) && empty($this->attributes['domain_id'])) {
+            $dom = LdapDomain::where('name', $value)
+                ->orWhere('display_name', $value)
+                ->orWhere('id', (string)$value)
+                ->first();
+            if ($dom) {
+                $this->attributes['domain_id'] = $dom->id;
+            }
+        }
     }
 }
