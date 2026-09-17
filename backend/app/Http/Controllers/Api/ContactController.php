@@ -147,6 +147,17 @@ class ContactController extends Controller
     public function update(Request $request, $id)
     {
         $contact = Contact::findOrFail($id);
+        $user = $request->user();
+
+        // کنترل دسترسی: کاربر عادی فقط مجاز به ویرایش مخاطبینی است که خودش ایجاد کرده است
+        if ($user && isset($user->role) && $user->role !== 'admin') {
+            if ((int)$contact->created_by_user_id !== (int)$user->id) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان ثبت کرده‌اید.',
+                ], 403);
+            }
+        }
 
         $validated = $request->validate([
             'first_name'       => 'sometimes|required|string|max:100',
@@ -178,9 +189,21 @@ class ContactController extends Controller
     /**
      * حذف مخاطب
      */
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
         $contact = Contact::findOrFail($id);
+        $user = $request->user();
+
+        // کنترل دسترسی: کاربر عادی فقط مجاز به حذف مخاطبینی است که خودش ایجاد کرده است
+        if ($user && isset($user->role) && $user->role !== 'admin') {
+            if ((int)$contact->created_by_user_id !== (int)$user->id) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'شما فقط مجاز به حذف مخاطبینی هستید که خودتان ثبت کرده‌اید.',
+                ], 403);
+            }
+        }
+
         $contact->delete();
 
         return response()->json([

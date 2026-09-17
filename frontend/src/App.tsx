@@ -467,6 +467,24 @@ export default function App() {
     }
 
     const exists = contacts.some((c) => String(c.id) === String(contactToSave.id));
+
+    // کنترل سطح دسترسی: کاربر عادی فقط حق ویرایش مخاطب ایجادشده توسط خودش را دارد (ادمین حق ویرایش همه را دارد)
+    if (exists) {
+      const existing = contacts.find((c) => String(c.id) === String(contactToSave.id));
+      const isAdmin = currentUser?.role === 'admin';
+      const isOwner = existing && currentUser ? existing.created_by_user_id === currentUser.id : false;
+      if (!isAdmin && !isOwner) {
+        showToast('شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان در سامانه ثبت کرده‌اید.');
+        return;
+      }
+    } else {
+      if (!currentUser) {
+        showToast('برای ثبت مخاطب جدید، لطفاً ابتدا وارد حساب کاربری خود شوید.');
+        setIsLoginModalOpen(true);
+        return;
+      }
+    }
+
     let finalContact = contactToSave;
 
     // Send to Live API directly
@@ -510,6 +528,16 @@ export default function App() {
 
   // Delete Contact
   const handleDeleteContact = (id: number | string) => {
+    const contactToDelete = contacts.find((c) => String(c.id) === String(id));
+    if (contactToDelete) {
+      const isAdmin = currentUser?.role === 'admin';
+      const isOwner = currentUser ? contactToDelete.created_by_user_id === currentUser.id : false;
+      if (!isAdmin && !isOwner) {
+        showToast('شما فقط مجاز به حذف مخاطبینی هستید که خودتان در سامانه ثبت کرده‌اید.');
+        return;
+      }
+    }
+
     const updated = contacts.filter((c) => String(c.id) !== String(id));
     updateContacts(updated);
     setSelectedContact(null);

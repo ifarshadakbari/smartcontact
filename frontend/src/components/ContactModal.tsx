@@ -80,7 +80,9 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 }) => {
   const isAdmin = currentUser ? currentUser.role === 'admin' : false;
   const isOwner = contact && currentUser ? contact.created_by_user_id === currentUser.id : false;
-  const canEdit = true;
+  // کاربر عادی فقط مخاطبی را که خودش ثبت کرده می‌تواند ویرایش یا حذف کند (کاربر ادمین همه را می‌تواند)
+  const canEdit = isCreateMode ? Boolean(currentUser) : Boolean(currentUser && (isAdmin || isOwner));
+  const canDelete = !isCreateMode && Boolean(currentUser && (isAdmin || isOwner));
   const canEditPersonnelCode = isCreateMode ? true : (isAdmin || isOwner);
 
   const effectiveDepartments =
@@ -387,6 +389,17 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       e.preventDefault();
     }
     setValidationError(null);
+
+    // بررسی مجوز ویرایش مخاطب
+    if (!canEdit) {
+      setValidationError(
+        currentUser
+          ? 'شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان در سامانه ثبت کرده‌اید.'
+          : 'برای ویرایش مخاطب لطفاً ابتدا وارد حساب کاربری خود شوید.'
+      );
+      modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
 
     // * Check Required Fields
     const isLocationContact = prefixTitle === 'location';
@@ -1799,7 +1812,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
         {/* Modal Footer */}
         <div className="px-5 py-3.5 border-t border-neutral-200 bg-neutral-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            {isEditing && !isCreateMode && onDelete && contact && (
+            {isEditing && !isCreateMode && canDelete && onDelete && contact && (
               <button
                 type="button"
                 onClick={() => {
@@ -1830,7 +1843,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               بستن
             </button>
 
-            {!isEditing && !isCreateMode && (
+            {!isEditing && !isCreateMode && canEdit && (
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
@@ -1840,6 +1853,12 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                 <Edit2 className="w-3.5 h-3.5" />
                 <span>ویرایش اطلاعات</span>
               </button>
+            )}
+
+            {!isEditing && !isCreateMode && !canEdit && (
+              <span className="text-[11px] text-neutral-500 bg-neutral-100/90 px-3 py-1.5 rounded-lg border border-neutral-200">
+                {currentUser ? 'امکان ویرایش: فقط مدیر یا ثبت‌کننده' : 'برای ویرایش وارد حساب شوید'}
+              </span>
             )}
 
             {isEditing && !isCreateMode && (
