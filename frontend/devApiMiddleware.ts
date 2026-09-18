@@ -273,9 +273,16 @@ export function createApiMiddleware() {
       (d) => String(d.id) === String(domId) || d.name?.toLowerCase() === String(domId).toLowerCase()
     );
 
+    const creatorId = data.created_by_user_id !== undefined && data.created_by_user_id !== null && data.created_by_user_id !== 0
+      ? Number(data.created_by_user_id)
+      : (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1);
+    const creatorName = data.created_by_user_name || 'کاربر سیستم';
+
     const newContact = {
       ...data,
       id: newId,
+      created_by_user_id: creatorId,
+      created_by_user_name: creatorName,
       domain: matchedDom ? matchedDom.name : (data.domain || ''),
       domain_id: matchedDom ? String(matchedDom.id) : (data.domain_id ? String(data.domain_id) : ''),
       domain_name: matchedDom ? matchedDom.display_name : (data.domain_name || ''),
@@ -314,10 +321,19 @@ export function createApiMiddleware() {
         )
       : null;
 
+    const existingCreatorId = contacts[index].created_by_user_id;
+    const creatorId = data.created_by_user_id !== undefined && data.created_by_user_id !== null && data.created_by_user_id !== 0
+      ? Number(data.created_by_user_id)
+      : (existingCreatorId ?? (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1));
+
+    const creatorName = data.created_by_user_name || contacts[index].created_by_user_name || 'کاربر سیستم';
+
     const updated = {
       ...contacts[index],
       ...data,
       id: contacts[index].id,
+      created_by_user_id: creatorId,
+      created_by_user_name: creatorName,
       domain: matchedDom ? matchedDom.name : (data.domain ?? contacts[index].domain),
       domain_id: matchedDom ? String(matchedDom.id) : (data.domain_id ? String(data.domain_id) : contacts[index].domain_id),
       domain_name: matchedDom ? matchedDom.display_name : (data.domain_name ?? contacts[index].domain_name),

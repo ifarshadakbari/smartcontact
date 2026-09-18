@@ -34,6 +34,7 @@ class Contact extends Model
     protected $appends = [
         'domain',
         'domain_name',
+        'created_by_user_name',
     ];
 
     // تبدیل خودکار JSON به آرایه در PHP و بالعکس
@@ -44,7 +45,18 @@ class Contact extends Model
         'is_public' => 'boolean',
         'display_order' => 'integer',
         'domain_id' => 'integer',
+        'created_by_user_id' => 'integer',
     ];
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function getCreatedByUserNameAttribute()
+    {
+        return $this->creator ? $this->creator->name : null;
+    }
 
     public function favoritedByUsers()
     {

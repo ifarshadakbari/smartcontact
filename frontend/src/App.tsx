@@ -566,14 +566,28 @@ export default function App() {
       }
     }
 
-    let finalContact: Contact = { ...contactToSave };
+    const resolvedCreatorId =
+      contactToSave.created_by_user_id !== undefined && contactToSave.created_by_user_id !== null && contactToSave.created_by_user_id !== 0
+        ? contactToSave.created_by_user_id
+        : (currentUser?.id || 1);
+
+    const resolvedCreatorName =
+      contactToSave.created_by_user_name || currentUser?.name || 'کاربر سیستم';
+
+    let finalContact: Contact = {
+      ...contactToSave,
+      created_by_user_id: resolvedCreatorId,
+      created_by_user_name: resolvedCreatorName,
+    };
 
     // Send to Live API directly
     try {
-      const apiResult = await saveContactToApi(contactToSave, laravelConfig, !exists);
+      const apiResult = await saveContactToApi(finalContact, laravelConfig, !exists);
       finalContact = {
-        ...contactToSave,
+        ...finalContact,
         ...apiResult,
+        created_by_user_id: apiResult.created_by_user_id || finalContact.created_by_user_id || resolvedCreatorId,
+        created_by_user_name: apiResult.created_by_user_name || finalContact.created_by_user_name || resolvedCreatorName,
         // اطمینان از حفظ مقادیر دامین انتخاب‌شده توسط کاربر در فرم
         domain: contactToSave.domain || apiResult.domain,
         domain_id: contactToSave.domain_id || apiResult.domain_id,
@@ -582,7 +596,11 @@ export default function App() {
     } catch (err: any) {
       console.error('Error saving to API:', err);
       // حتی در صورت خطای شبکه، تغییرات به‌صورت محلی ذخیره می‌شوند
-      finalContact = { ...contactToSave };
+      finalContact = {
+        ...contactToSave,
+        created_by_user_id: resolvedCreatorId,
+        created_by_user_name: resolvedCreatorName,
+      };
       showToast('اطلاعات به‌صورت محلی ثبت شد (عدم پاسخ سرور)');
     }
 

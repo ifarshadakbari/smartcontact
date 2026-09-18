@@ -12,9 +12,9 @@ use Illuminate\Support\Facades\Schema;
 class ContactController extends Controller
 {
     /**
-     * دریافت لیست مخاطبین با وضعیت اختصاصی نشان‌شده کاربر لاگین‌شده
+     * احراز و استخراج کاربر درخواست‌دهنده از توکن، سشن، هدر X-User-Id یا ورودی
      */
-    public function index(Request $request)
+    protected function resolveUser(Request $request)
     {
         $user = $request->user();
         if (!$user) {
@@ -27,10 +27,22 @@ class ContactController extends Controller
                     }
                 } catch (\Throwable $e) {}
             }
-            if (!$user && $request->hasHeader('X-User-Id')) {
-                $user = User::find($request->header('X-User-Id'));
-            }
         }
+        if (!$user && $request->hasHeader('X-User-Id')) {
+            $user = User::find($request->header('X-User-Id'));
+        }
+        if (!$user && $request->filled('created_by_user_id')) {
+            $user = User::find($request->input('created_by_user_id'));
+        }
+        return $user;
+    }
+
+    /**
+     * دریافت لیست مخاطبین با وضعیت اختصاصی نشان‌شده کاربر لاگین‌شده
+     */
+    public function index(Request $request)
+    {
+        $user = $this->resolveUser($request);
         $query = Contact::query();
 
         // فیلتر جستجو
@@ -105,27 +117,29 @@ class ContactController extends Controller
      */
     public function store(Request $request)
     {
-        $user = $request->user();
+        $user = $this->resolveUser($request);
 
         $validated = $request->validate([
-            'first_name'       => 'required|string|max:100',
-            'last_name'        => 'required|string|max:100',
-            'prefix_title'     => 'nullable|string|max:50',
-            'personnel_code'   => 'nullable|string|max:50',
-            'job_title'        => 'nullable|string|max:150',
-            'department'       => 'nullable|string|max:150',
-            'location'         => 'nullable|string|max:150',
-            'mobiles'          => 'nullable|array',
-            'landlines'        => 'nullable|array',
-            'email'            => 'nullable|string|max:150',
-            'description'      => 'nullable|string',
-            'avatar'           => 'nullable|string',
-            'contact_type'     => 'nullable|string|in:internal,external',
-            'domain'           => 'nullable|string|max:100',
-            'domain_id'        => 'nullable|max:100',
-            'domain_name'      => 'nullable|string|max:100',
-            'is_public'        => 'nullable|boolean',
-            'is_favorite'      => 'nullable|boolean',
+            'first_name'          => 'required|string|max:100',
+            'last_name'           => 'required|string|max:100',
+            'prefix_title'        => 'nullable|string|max:50',
+            'personnel_code'      => 'nullable|string|max:50',
+            'job_title'           => 'nullable|string|max:150',
+            'department'          => 'nullable|string|max:150',
+            'location'            => 'nullable|string|max:150',
+            'mobiles'             => 'nullable|array',
+            'landlines'           => 'nullable|array',
+            'email'               => 'nullable|string|max:150',
+            'description'         => 'nullable|string',
+            'avatar'              => 'nullable|string',
+            'contact_type'        => 'nullable|string|in:internal,external',
+            'domain'              => 'nullable|string|max:100',
+            'domain_id'           => 'nullable|max:100',
+            'domain_name'         => 'nullable|string|max:100',
+            'is_public'           => 'nullable|boolean',
+            'is_favorite'         => 'nullable|boolean',
+            'created_by_user_id'  => 'nullable|integer',
+            'created_by_user_name'=> 'nullable|string|max:150',
         ]);
 
         // تطبیق و استخراج domain_id عددی و نام دامین
@@ -176,8 +190,22 @@ class ContactController extends Controller
         }
         unset($validated['domain_name']);
 
+        // تعیین شناسه کاربر ثبت‌کننده (created_by_user_id)
+        $creatorId = null;
         if ($user) {
-            $validated['created_by_user_id'] = $user->id;
+            $creatorId = $user->id;
+        } elseif ($request->filled('created_by_user_id')) {
+            $creatorId = (int)$request->input('created_by_user_id');
+        } elseif ($request->hasHeader('X-User-Id')) {
+            $creatorId = (int)$request->header('X-User-Id');
+        }
+
+        if (Schema::hasColumn('contacts', 'created_by_user_id') && $creatorId) {
+            $validated['created_by_user_id'] = $creatorId;
+        }
+
+        if (!Schema::hasColumn('contacts', 'created_by_user_name')) {
+            unset($validated['created_by_user_name']);
         }
 
         $contact = Contact::create($validated);
@@ -265,11 +293,11 @@ class ContactController extends Controller
     public function update(Request $request, $id)
     {
         $contact = Contact::findOrFail($id);
-        $user = $request->user();
+        $user = $this->resolveUser($request);
 
         // کنترل دسترسی: کاربر عادی فقط مجاز به ویرایش مخاطبینی است که خودش ایجاد کرده است
         if ($user && isset($user->role) && $user->role !== 'admin') {
-            if ((int)$contact->created_by_user_id !== (int)$user->id) {
+            if (!empty($contact->created_by_user_id) && (int)$contact->created_by_user_id !== (int)$user->id) {
                 return response()->json([
                     'status'  => 'error',
                     'message' => 'شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان ثبت کرده‌اید.',
@@ -278,24 +306,26 @@ class ContactController extends Controller
         }
 
         $validated = $request->validate([
-            'first_name'       => 'sometimes|required|string|max:100',
-            'last_name'        => 'sometimes|required|string|max:100',
-            'prefix_title'     => 'nullable|string|max:50',
-            'personnel_code'   => 'nullable|string|max:50',
-            'job_title'        => 'nullable|string|max:150',
-            'department'       => 'nullable|string|max:150',
-            'location'         => 'nullable|string|max:150',
-            'mobiles'          => 'nullable|array',
-            'landlines'        => 'nullable|array',
-            'email'            => 'nullable|string|max:150',
-            'description'      => 'nullable|string',
-            'avatar'           => 'nullable|string',
-            'contact_type'     => 'nullable|string|in:internal,external',
-            'domain'           => 'nullable|string|max:100',
-            'domain_id'        => 'nullable|max:100',
-            'domain_name'      => 'nullable|string|max:100',
-            'is_public'        => 'nullable|boolean',
-            'is_favorite'      => 'nullable|boolean',
+            'first_name'          => 'sometimes|required|string|max:100',
+            'last_name'           => 'sometimes|required|string|max:100',
+            'prefix_title'        => 'nullable|string|max:50',
+            'personnel_code'      => 'nullable|string|max:50',
+            'job_title'           => 'nullable|string|max:150',
+            'department'          => 'nullable|string|max:150',
+            'location'            => 'nullable|string|max:150',
+            'mobiles'             => 'nullable|array',
+            'landlines'           => 'nullable|array',
+            'email'               => 'nullable|string|max:150',
+            'description'         => 'nullable|string',
+            'avatar'              => 'nullable|string',
+            'contact_type'        => 'nullable|string|in:internal,external',
+            'domain'              => 'nullable|string|max:100',
+            'domain_id'           => 'nullable|max:100',
+            'domain_name'         => 'nullable|string|max:100',
+            'is_public'           => 'nullable|boolean',
+            'is_favorite'         => 'nullable|boolean',
+            'created_by_user_id'  => 'nullable|integer',
+            'created_by_user_name'=> 'nullable|string|max:150',
         ]);
 
         if ($request->has('domain') || $request->has('domain_id') || $request->has('domain_name')) {
@@ -347,6 +377,23 @@ class ContactController extends Controller
         }
         unset($validated['domain_name']);
 
+        // ثبت یا به‌روزرسانی فیلد created_by_user_id در ویرایش مخاطب
+        if (Schema::hasColumn('contacts', 'created_by_user_id')) {
+            if ($request->filled('created_by_user_id')) {
+                $validated['created_by_user_id'] = (int)$request->input('created_by_user_id');
+            } elseif (empty($contact->created_by_user_id)) {
+                if ($user) {
+                    $validated['created_by_user_id'] = $user->id;
+                } elseif ($request->hasHeader('X-User-Id')) {
+                    $validated['created_by_user_id'] = (int)$request->header('X-User-Id');
+                }
+            }
+        }
+
+        if (!Schema::hasColumn('contacts', 'created_by_user_name')) {
+            unset($validated['created_by_user_name']);
+        }
+
         $contact->update($validated);
 
         // آماده‌سازی فیلدهای خروجی
@@ -366,11 +413,11 @@ class ContactController extends Controller
     public function destroy(Request $request, $id)
     {
         $contact = Contact::findOrFail($id);
-        $user = $request->user();
+        $user = $this->resolveUser($request);
 
         // کنترل دسترسی: کاربر عادی فقط مجاز به حذف مخاطبینی است که خودش ایجاد کرده است
         if ($user && isset($user->role) && $user->role !== 'admin') {
-            if ((int)$contact->created_by_user_id !== (int)$user->id) {
+            if (!empty($contact->created_by_user_id) && (int)$contact->created_by_user_id !== (int)$user->id) {
                 return response()->json([
                     'status'  => 'error',
                     'message' => 'شما فقط مجاز به حذف مخاطبینی هستید که خودتان ثبت کرده‌اید.',

@@ -464,6 +464,14 @@ export const saveContactToApi = async (
     descVal = descVal.replace('[PREFIX:LOCATION]', '').trim();
   }
 
+  const resolvedCreatedById =
+    contact.created_by_user_id !== undefined && contact.created_by_user_id !== null && contact.created_by_user_id !== 0
+      ? Number(contact.created_by_user_id)
+      : (authUser?.id ? Number(authUser.id) : undefined);
+
+  const resolvedCreatedByName =
+    contact.created_by_user_name || authUser?.name || undefined;
+
   const payload: any = {
     first_name: firstNameVal,
     last_name: lastNameVal,
@@ -484,6 +492,8 @@ export const saveContactToApi = async (
     company_name: contact.contact_type === 'external' ? (contact.company_name || null) : null,
     is_public: contact.is_public !== undefined ? Boolean(contact.is_public) : true,
     is_favorite: Boolean(contact.is_favorite),
+    created_by_user_id: resolvedCreatedById,
+    created_by_user_name: resolvedCreatedByName,
   };
 
   let res: Response;
@@ -577,6 +587,12 @@ export const saveContactToApi = async (
     ...contact,
     ...savedItem,
     id: savedItem.id || contact.id,
+    created_by_user_id:
+      savedItem.created_by_user_id !== undefined && savedItem.created_by_user_id !== null
+        ? Number(savedItem.created_by_user_id)
+        : (contact.created_by_user_id || resolvedCreatedById || 1),
+    created_by_user_name:
+      savedItem.created_by_user_name || contact.created_by_user_name || resolvedCreatedByName || 'کاربر سیستم',
     domain: savedItem.domain ? String(savedItem.domain) : (contact.domain ? String(contact.domain) : ''),
     domain_id: savedItem.domain_id !== undefined && savedItem.domain_id !== null && savedItem.domain_id !== ''
       ? String(savedItem.domain_id)

@@ -44,7 +44,7 @@ let ldapDomains = [
 ];
 
 // Initial Seed Data for Contacts
-let contacts = [
+let contacts: any[] = [
   {
     id: 1,
     personnel_code: '1001',
@@ -238,9 +238,16 @@ app.get('/api/contacts', (req, res) => {
 
 app.post('/api/contacts', (req, res) => {
   const data = req.body;
+  const creatorId = data.created_by_user_id !== undefined && data.created_by_user_id !== null && data.created_by_user_id !== 0
+    ? Number(data.created_by_user_id)
+    : (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1);
+  const creatorName = data.created_by_user_name || 'کاربر سیستم';
+
   const newContact = {
     ...data,
     id: data.id && typeof data.id === 'number' && data.id < 1000000 ? data.id : nextContactId++,
+    created_by_user_id: creatorId,
+    created_by_user_name: creatorName,
     is_favorite: Boolean(data.is_favorite),
     is_public: data.is_public !== undefined ? Boolean(data.is_public) : true,
     mobiles: Array.isArray(data.mobiles) ? data.mobiles : [],
@@ -267,10 +274,19 @@ app.put('/api/contacts/:id', (req, res) => {
   if (index === -1) {
     return res.status(404).json({ error: 'مخاطب یافت نشد.' });
   }
+  const data = req.body;
+  const existingCreatorId = contacts[index].created_by_user_id;
+  const creatorId = data.created_by_user_id !== undefined && data.created_by_user_id !== null && data.created_by_user_id !== 0
+    ? Number(data.created_by_user_id)
+    : (existingCreatorId ?? (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1));
+  const creatorName = data.created_by_user_name || contacts[index].created_by_user_name || 'کاربر سیستم';
+
   const updated = {
     ...contacts[index],
-    ...req.body,
+    ...data,
     id,
+    created_by_user_id: creatorId,
+    created_by_user_name: creatorName,
     updated_at: new Date().toISOString(),
   };
   contacts[index] = updated;
