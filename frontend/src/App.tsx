@@ -576,12 +576,16 @@ export default function App() {
 
     const isAdminUser = currentUser?.role === 'admin';
     const resolvedIsPublic = isAdminUser ? (contactToSave.is_public !== undefined ? Boolean(contactToSave.is_public) : true) : false;
+    const resolvedIsMobilePublic = (isAdminUser && resolvedIsPublic)
+      ? (contactToSave.contact_type === 'internal' ? Boolean(contactToSave.is_mobile_public) : true)
+      : false;
 
     let finalContact: Contact = {
       ...contactToSave,
       created_by_user_id: resolvedCreatorId,
       created_by_user_name: resolvedCreatorName,
       is_public: resolvedIsPublic,
+      is_mobile_public: resolvedIsMobilePublic,
     };
 
     // Send to Live API directly

@@ -560,7 +560,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
         department: department || 'سایر',
         location: String(location || '').trim() || undefined,
         mobiles: validMobiles,
-        is_mobile_public: contactType === 'internal' ? isMobilePublic : true,
+        is_mobile_public: isAdmin && isPublic ? (contactType === 'internal' ? isMobilePublic : true) : false,
         personal_mobiles: contact?.personal_mobiles || {},
         landlines: validLandlines,
         email: String(email || '').trim() || undefined,
@@ -1369,7 +1369,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                   ))}
                 </div>
 
-                {contactType === 'internal' && (
+                {isAdmin && isPublic && contactType === 'internal' && (
                   <div className="mt-3 p-3 bg-blue-50/70 border border-blue-200 rounded-lg flex items-start gap-2.5">
                     <input
                       type="checkbox"
@@ -1714,7 +1714,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                 )}
 
                 {/* Organizational Confidentiality Notice for Internal Staff */}
-                {contact && contact.contact_type === 'internal' && !contact.is_mobile_public && (
+                {contact && contact.contact_type === 'internal' && contact.is_public !== false && !contact.is_mobile_public && (
                   <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-lg flex items-start gap-2 text-xs text-neutral-600">
                     <Lock className="w-4 h-4 text-neutral-400 shrink-0 mt-0.5" />
                     <div className="space-y-0.5">

@@ -254,8 +254,9 @@ app.post('/api/contacts', (req, res) => {
     : (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1);
   const creatorName = data.created_by_user_name || (isAdmin ? 'مدیر سیستم' : 'کاربر سازمانی');
 
-  // صرفاً کاربر ادمین اجازه ثبت مخاطب عمومی سازمانی را دارد
+  // صرفاً کاربر ادمین اجازه ثبت مخاطب عمومی سازمانی و تعیین همراه عمومی را دارد
   const isPublic = isAdmin ? (data.is_public !== undefined ? Boolean(data.is_public) : true) : false;
+  const isMobilePublic = isAdmin && isPublic ? Boolean(data.is_mobile_public) : false;
 
   const newContact = {
     ...data,
@@ -264,6 +265,7 @@ app.post('/api/contacts', (req, res) => {
     created_by_user_name: creatorName,
     is_favorite: Boolean(data.is_favorite),
     is_public: isPublic,
+    is_mobile_public: isMobilePublic,
     mobiles: Array.isArray(data.mobiles) ? data.mobiles : [],
     landlines: Array.isArray(data.landlines) ? data.landlines : [],
     created_at: new Date().toISOString(),
@@ -301,6 +303,9 @@ app.put('/api/contacts/:id', (req, res) => {
   const isPublic = isAdmin
     ? (data.is_public !== undefined ? Boolean(data.is_public) : (contacts[index].is_public ?? true))
     : false;
+  const isMobilePublic = isAdmin && isPublic
+    ? (data.is_mobile_public !== undefined ? Boolean(data.is_mobile_public) : (contacts[index].is_mobile_public ?? false))
+    : false;
 
   const updated = {
     ...contacts[index],
@@ -309,6 +314,7 @@ app.put('/api/contacts/:id', (req, res) => {
     created_by_user_id: creatorId,
     created_by_user_name: creatorName,
     is_public: isPublic,
+    is_mobile_public: isMobilePublic,
     updated_at: new Date().toISOString(),
   };
   contacts[index] = updated;
