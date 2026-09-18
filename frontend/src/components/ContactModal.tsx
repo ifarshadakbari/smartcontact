@@ -1238,10 +1238,10 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                   {landlines.map((landline, idx) => (
                     <div
                       key={landline.id || idx}
-                      className="grid grid-cols-1 sm:grid-cols-12 gap-2 bg-white p-2.5 rounded-lg border border-neutral-200 items-center"
+                      className="grid grid-cols-1 sm:grid-cols-12 gap-2 bg-white p-2.5 rounded-lg border border-neutral-200 items-end"
                     >
-                      <div className="sm:col-span-5">
-                        <label className="block text-[10px] text-neutral-500 mb-0.5">
+                      <div className="sm:col-span-4">
+                        <label className="block text-[10px] text-neutral-500 mb-1 h-4 leading-4 truncate">
                           خط تلفن ثابت
                         </label>
                         <input
@@ -1249,13 +1249,13 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                           value={landline.phone || ''}
                           onChange={(e) => handleUpdateLandline(idx, 'phone', e.target.value)}
                           placeholder="شماره مستقیم"
-                          className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs font-mono text-neutral-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                          className="w-full h-8 px-2.5 py-1 border border-neutral-300 rounded text-xs font-mono text-neutral-900 focus:outline-none focus:ring-1 focus:ring-blue-600"
                           dir="ltr"
                         />
                       </div>
 
                       <div className="sm:col-span-3">
-                        <label className="block text-[10px] text-neutral-500 mb-0.5">
+                        <label className="block text-[10px] text-neutral-500 mb-1 h-4 leading-4 truncate">
                           شماره داخلی
                         </label>
                         <input
@@ -1263,18 +1263,18 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                           value={landline.extension || ''}
                           onChange={(e) => handleUpdateLandline(idx, 'extension', e.target.value)}
                           placeholder="داخلی"
-                          className="w-full px-2.5 py-1.5 border border-neutral-300 rounded text-xs font-mono font-bold text-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                          className="w-full h-8 px-2.5 py-1 border border-neutral-300 rounded text-xs font-mono font-bold text-blue-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
                           dir="ltr"
                         />
                       </div>
 
-                      <div className="sm:col-span-3">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <label className="block text-[10px] text-neutral-500">
+                      <div className="sm:col-span-4">
+                        <div className="flex items-center justify-between mb-1 h-4 leading-4">
+                          <label className="block text-[10px] text-neutral-500 truncate">
                             عنوان خط (اختیاری)
                           </label>
                           {isWirelessLine(landline.title) ? (
-                            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-sky-700 bg-sky-100 px-1 py-0.2 rounded border border-sky-300">
+                            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-sky-700 bg-sky-100 px-1 py-0.5 rounded border border-sky-300 shrink-0">
                               <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
                               <span>بی‌سیم</span>
                             </span>
@@ -1282,11 +1282,11 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                             <button
                               type="button"
                               onClick={() => handleUpdateLandline(idx, 'title', 'بی‌سیم')}
-                              className="inline-flex items-center gap-1 text-[9px] text-neutral-400 hover:text-sky-700 cursor-pointer transition font-medium"
+                              className="inline-flex items-center gap-1 text-[9px] text-neutral-400 hover:text-sky-700 cursor-pointer transition font-medium shrink-0"
                               title="درج خودکار عنوان بی‌سیم"
                             >
                               <CordlessPhoneIcon className="w-3 h-3 text-sky-600" />
-                              <span>درج سریع: بی‌سیم</span>
+                              <span>درج: بی‌سیم</span>
                             </button>
                           ) : null}
                         </div>
@@ -1296,7 +1296,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                             value={landline.title || ''}
                             onChange={(e) => handleUpdateLandline(idx, 'title', e.target.value)}
                             placeholder="مثال: بی‌سیم، میز کاری"
-                            className={`w-full px-2.5 py-1.5 border rounded text-xs text-neutral-700 focus:outline-none focus:ring-1 focus:ring-blue-600 ${
+                            className={`w-full h-8 px-2.5 py-1 border rounded text-xs text-neutral-700 focus:outline-none focus:ring-1 focus:ring-blue-600 ${
                               isWirelessLine(landline.title)
                                 ? 'border-sky-300 bg-sky-50/40 text-sky-900 pl-7'
                                 : 'border-neutral-300'
@@ -1308,14 +1308,14 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="sm:col-span-1 text-center pt-2 sm:pt-0">
+                      <div className="sm:col-span-1 flex items-center justify-center h-8">
                         <button
                           type="button"
                           onClick={() => handleRemoveLandline(idx)}
-                          className="text-neutral-400 hover:text-red-600 transition p-1 cursor-pointer"
+                          className="text-neutral-400 hover:text-red-600 transition p-1.5 rounded hover:bg-red-50 cursor-pointer"
                           title="حذف این خط"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
