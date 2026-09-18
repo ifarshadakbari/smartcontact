@@ -247,10 +247,15 @@ app.get('/api/contacts', (req, res) => {
 
 app.post('/api/contacts', (req, res) => {
   const data = req.body;
+  const userRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+  const isAdmin = userRole === 'admin';
   const creatorId = data.created_by_user_id !== undefined && data.created_by_user_id !== null && data.created_by_user_id !== 0
     ? Number(data.created_by_user_id)
     : (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1);
-  const creatorName = data.created_by_user_name || 'کاربر سیستم';
+  const creatorName = data.created_by_user_name || (isAdmin ? 'مدیر سیستم' : 'کاربر سازمانی');
+
+  // صرفاً کاربر ادمین اجازه ثبت مخاطب عمومی سازمانی را دارد
+  const isPublic = isAdmin ? (data.is_public !== undefined ? Boolean(data.is_public) : true) : false;
 
   const newContact = {
     ...data,
@@ -258,7 +263,7 @@ app.post('/api/contacts', (req, res) => {
     created_by_user_id: creatorId,
     created_by_user_name: creatorName,
     is_favorite: Boolean(data.is_favorite),
-    is_public: data.is_public !== undefined ? Boolean(data.is_public) : true,
+    is_public: isPublic,
     mobiles: Array.isArray(data.mobiles) ? data.mobiles : [],
     landlines: Array.isArray(data.landlines) ? data.landlines : [],
     created_at: new Date().toISOString(),
@@ -284,11 +289,18 @@ app.put('/api/contacts/:id', (req, res) => {
     return res.status(404).json({ error: 'مخاطب یافت نشد.' });
   }
   const data = req.body;
+  const userRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+  const isAdmin = userRole === 'admin';
   const existingCreatorId = contacts[index].created_by_user_id;
   const creatorId = data.created_by_user_id !== undefined && data.created_by_user_id !== null && data.created_by_user_id !== 0
     ? Number(data.created_by_user_id)
     : (existingCreatorId ?? (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1));
-  const creatorName = data.created_by_user_name || contacts[index].created_by_user_name || 'کاربر سیستم';
+  const creatorName = data.created_by_user_name || contacts[index].created_by_user_name || (isAdmin ? 'مدیر سیستم' : 'کاربر سازمانی');
+
+  // صرفاً کاربر ادمین اجازه تعیین وضعیت عمومی را دارد
+  const isPublic = isAdmin
+    ? (data.is_public !== undefined ? Boolean(data.is_public) : (contacts[index].is_public ?? true))
+    : false;
 
   const updated = {
     ...contacts[index],
@@ -296,6 +308,7 @@ app.put('/api/contacts/:id', (req, res) => {
     id,
     created_by_user_id: creatorId,
     created_by_user_name: creatorName,
+    is_public: isPublic,
     updated_at: new Date().toISOString(),
   };
   contacts[index] = updated;

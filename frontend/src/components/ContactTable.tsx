@@ -3,6 +3,7 @@ import { Copy, Check, Star, ArrowUpRight, Phone, Smartphone, MapPin, UserCheck, 
 import { Contact, User, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
 import { getVisibleMobiles, getDomainDisplayName, isWirelessLine, isPureWirelessTitle, getNonWirelessTitle } from '../utils/phoneUtils';
+import { getContactCreatorLabel } from '../utils/contactUtils';
 import { CordlessPhoneIcon } from './CordlessPhoneIcon';
 
 interface ContactTableProps {
@@ -245,8 +246,8 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                           <span>ثبت شده توسط شما</span>
                         </span>
                       ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${contact.created_by_user_name || contact.created_by_user_id}`}>
-                          <span>ثبت: {contact.created_by_user_name?.split(' ')[0] || `کاربر ${contact.created_by_user_id}`}</span>
+                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, contacts)}`}>
+                          <span>ثبت: {getContactCreatorLabel(contact, contacts)}</span>
                         </span>
                       ) : null}
                     </div>

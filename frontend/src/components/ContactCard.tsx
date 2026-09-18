@@ -21,11 +21,13 @@ import {
 import { Contact, User, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
 import { getVisibleMobiles, getDomainDisplayName, isWirelessLine, isPureWirelessTitle, getNonWirelessTitle } from '../utils/phoneUtils';
+import { getContactCreatorLabel } from '../utils/contactUtils';
 import { CordlessPhoneIcon } from './CordlessPhoneIcon';
 
 interface ContactCardProps {
   contact: Contact;
   currentUser: User | null;
+  allContacts?: Contact[];
   ldapDomains?: LdapDomain[];
   onSelect: (contact: Contact) => void;
   onToggleFavorite: (id: number | string) => void;
@@ -37,6 +39,7 @@ interface ContactCardProps {
 export const ContactCard: React.FC<ContactCardProps> = ({
   contact,
   currentUser,
+  allContacts,
   ldapDomains,
   onSelect,
   onToggleFavorite,
@@ -180,8 +183,8 @@ export const ContactCard: React.FC<ContactCardProps> = ({
               <span>ثبت شده توسط شما</span>
             </span>
           ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${contact.created_by_user_name || contact.created_by_user_id}`}>
-              <span>ثبت: {contact.created_by_user_name?.split(' ')[0] || `کاربر ${contact.created_by_user_id}`}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, allContacts)}`}>
+              <span>ثبت: {getContactCreatorLabel(contact, allContacts)}</span>
             </span>
           ) : null}
         </div>

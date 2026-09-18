@@ -201,10 +201,15 @@ Route::post('/login/ldap', function (Request $request) {
                 ['email' => 'admin@parszarasa.local'],
                 [
                     'name'     => 'مدیر ارشد سامانه',
+                    'username' => 'admin',
                     'password' => bcrypt('admin'),
                     'role'     => 'admin',
                 ]
             );
+            if (empty($user->username)) {
+                $user->username = 'admin';
+                $user->save();
+            }
 
             $token = method_exists($user, 'createToken') 
                 ? $user->createToken('auth-token')->plainTextToken 
@@ -351,10 +356,19 @@ Route::post('/login/ldap', function (Request $request) {
             ['email' => $email],
             [
                 'name'     => $displayName,
+                'username' => $cleanUsername,
                 'password' => bcrypt(str_random(16)),
                 'role'     => $isAdmin ? 'admin' : 'staff',
             ]
         );
+
+        if (empty($dbUser->username) || (empty($dbUser->name) && !empty($displayName))) {
+            $dbUser->username = $cleanUsername;
+            if (!empty($displayName)) {
+                $dbUser->name = $displayName;
+            }
+            $dbUser->save();
+        }
 
         // صدور توکن Sanctum یا توکن تصادفی در صورت عدم استفاده از Sanctum
         $token = method_exists($dbUser, 'createToken')

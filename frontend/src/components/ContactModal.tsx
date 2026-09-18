@@ -33,6 +33,7 @@ import { Contact, LandlineEntry, PrefixTitle, User, Department, LdapDomain } fro
 import { Avatar } from './Avatar';
 import { CordlessPhoneIcon } from './CordlessPhoneIcon';
 import { resizeAvatarImage, getBase64SizeInKb } from '../utils/imageUtils';
+import { getContactCreatorLabel } from '../utils/contactUtils';
 import {
   getVisibleMobiles,
   normalizePhoneNumber,
@@ -197,7 +198,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       setDescription(contact.description || '');
       setAvatar(contact.avatar);
       setPersonnelCode(contact.personnel_code || '');
-      setIsPublic(contact.is_public ?? true);
+      setIsPublic(isAdmin ? (contact.is_public ?? true) : false);
       setIsFavorite(Boolean(contact.is_favorite));
       setIsEditing(isCreateMode);
     } else if (isCreateMode) {
@@ -221,7 +222,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       setDescription('');
       setAvatar(undefined);
       setPersonnelCode('');
-      setIsPublic(true);
+      setIsPublic(isAdmin ? true : false);
       setIsEditing(true);
     }
   }, [contact, isCreateMode, isAdmin, ldapDomains, initialContactType, initialCompanyName]);
@@ -567,8 +568,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
         avatar,
         is_favorite: isFavorite,
         created_by_user_id: contact?.created_by_user_id ?? (currentUser?.id || 1),
-        created_by_user_name: contact?.created_by_user_name ?? (currentUser?.name || 'مدیر سیستم'),
-        is_public: isPublic,
+        created_by_user_name: contact?.created_by_user_name ?? (currentUser?.username || currentUser?.name || 'مدیر سیستم'),
+        is_public: isAdmin ? isPublic : false,
       };
 
       setIsSaving(true);
@@ -1422,43 +1423,61 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               </div>
 
               {/* Privacy and Visibility Scope */}
-              <div className="bg-neutral-50 p-3.5 rounded-xl border border-neutral-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-neutral-800">
-                    <input
-                      type="checkbox"
-                      checked={isPublic}
-                      onChange={(e) => setIsPublic(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
-                    />
-                    <span>مخاطب عمومی سازمانی (قابل مشاهده برای تمام پرسنل)</span>
-                  </label>
-                  <span
-                    className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded border self-start sm:self-auto ${
-                      isPublic
-                        ? 'bg-neutral-100 text-neutral-700 border-neutral-300'
-                        : 'bg-amber-50 text-amber-800 border-amber-300'
-                    }`}
-                  >
-                    {isPublic ? (
-                      <>
-                        <Globe className="w-3.5 h-3.5 text-neutral-500" />
-                        <span>عمومی</span>
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="w-3.5 h-3.5 text-amber-600" />
-                        <span>خصوصی</span>
-                      </>
-                    )}
-                  </span>
+              {isAdmin ? (
+                <div className="bg-neutral-50 p-3.5 rounded-xl border border-neutral-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-neutral-800">
+                      <input
+                        type="checkbox"
+                        checked={isPublic}
+                        onChange={(e) => setIsPublic(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                      <span>مخاطب عمومی سازمانی (قابل مشاهده برای تمام پرسنل)</span>
+                    </label>
+                    <span
+                      className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded border self-start sm:self-auto ${
+                        isPublic
+                          ? 'bg-neutral-100 text-neutral-700 border-neutral-300'
+                          : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      {isPublic ? (
+                        <>
+                          <Globe className="w-3.5 h-3.5 text-neutral-500" />
+                          <span>عمومی</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>خصوصی</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-500 mt-1.5 leading-relaxed">
+                    {isPublic
+                      ? 'این مخاطب با برچسب «عمومی» در دفترچه تلفن برای تمام کاربران و همکاران نمایش داده خواهد شد.'
+                      : 'این مخاطب با برچسب «خصوصی» ثبت می‌شود و منحصراً برای شما و ادمین‌های سیستم قابل مشاهده خواهد بود.'}
+                  </p>
                 </div>
-                <p className="text-[11px] text-neutral-500 mt-1.5 leading-relaxed">
-                  {isPublic
-                    ? 'این مخاطب با برچسب «عمومی» در دفترچه تلفن برای تمام کاربران و همکاران نمایش داده خواهد شد.'
-                    : 'این مخاطب با برچسب «خصوصی» ثبت می‌شود و منحصراً برای شما و ادمین‌های سیستم قابل مشاهده خواهد بود.'}
-                </p>
-              </div>
+              ) : (
+                <div className="bg-amber-50/80 p-3.5 rounded-xl border border-amber-200">
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                      <Lock className="w-4 h-4 text-amber-700" />
+                      <span>ثبت مخاطب به صورت خصوصی (دفترچه شخصی شما)</span>
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded border bg-amber-100 text-amber-900 border-amber-300">
+                      <Lock className="w-3.5 h-3.5 text-amber-700" />
+                      <span>خصوصی</span>
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    مخاطب افزوده شده توسط شما به صورت خودکار با برچسب «خصوصی» ذخیره شده و منحصراً برای شما و مدیریت سیستم قابل مشاهده است. تعیین مخاطب عمومی سازمانی صرفاً در اختیار مدیران سامانه (Admin) می‌باشد.
+                  </p>
+                </div>
+              )}
             </form>
           ) : (
             /* View Mode */
@@ -1529,8 +1548,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                         <span>ثبت شده توسط شما</span>
                       </span>
                     ) : isAdmin && (contact?.created_by_user_name || contact?.created_by_user_id) ? (
-                      <span className="bg-white/10 text-neutral-300 border border-white/10 px-2 py-0.5 rounded text-[11px]">
-                        ثبت: {contact?.created_by_user_name || `کاربر ${contact?.created_by_user_id}`}
+                      <span className="bg-white/10 text-neutral-300 border border-white/10 px-2.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, allContacts)}`}>
+                        <span>ثبت: {getContactCreatorLabel(contact, allContacts)}</span>
                       </span>
                     ) : null}
                   </div>

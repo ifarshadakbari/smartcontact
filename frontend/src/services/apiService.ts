@@ -335,6 +335,9 @@ export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Conta
   if (authUser?.id) {
     headers['X-User-Id'] = String(authUser.id);
   }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
+  }
 
   const res = await fetch(targetUrl, { method: 'GET', headers });
   if (!res.ok) {
@@ -403,6 +406,9 @@ export const saveContactToApi = async (
   const authUser = getStoredAuthUser();
   if (authUser?.id) {
     headers['X-User-Id'] = String(authUser.id);
+  }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
   }
 
   // Determine if this is an update or create
@@ -646,6 +652,9 @@ export const toggleFavoriteOnApi = async (
   }
   if (authUser?.id) {
     headers['X-User-Id'] = String(authUser.id);
+  }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
   }
 
   try {

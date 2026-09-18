@@ -84,12 +84,21 @@ class ContactController extends Controller
         }
 
         $ldapDomains = Schema::hasTable('ldap_domains') ? DB::table('ldap_domains')->get()->keyBy('id') : collect();
+        $usersMap = Schema::hasTable('users') ? User::all()->keyBy('id') : collect();
 
-        $contacts = $query->orderBy('id', 'desc')->get()->map(function ($contact) use ($user, $userFavIds, $ldapDomains) {
+        $contacts = $query->orderBy('id', 'desc')->get()->map(function ($contact) use ($user, $userFavIds, $ldapDomains, $usersMap) {
             if ($user) {
                 $contact->is_favorite = in_array($contact->id, $userFavIds);
             } else {
                 $contact->is_favorite = (bool) $contact->is_favorite;
+            }
+
+            // جایگزینی نام کاربری به جای ID در صورت وجود
+            if (!empty($contact->created_by_user_id)) {
+                $creator = $usersMap->get($contact->created_by_user_id);
+                if ($creator) {
+                    $contact->created_by_user_name = $creator->username ?: ($creator->name ?: $creator->email);
+                }
             }
 
             // تعیین و همگام‌سازی domain_id و domain_name
@@ -195,21 +204,43 @@ class ContactController extends Controller
         }
         unset($validated['domain_name']);
 
-        // تعیین شناسه کاربر ثبت‌کننده (created_by_user_id)
+        // قانون: صرفاً کاربر ادمین، اجازه تعیین مخاطب عمومی سازمانی (is_public = true) را دارد.
+        // برای سایر پرسنل لاگین‌کرده، افزودن مخاطب صرفاً حالت خصوصی دارد.
+        $isAdmin = ($user && isset($user->role) && $user->role === 'admin') || $request->header('X-User-Role') === 'admin';
+        if (!$isAdmin) {
+            $validated['is_public'] = false;
+        }
+
+        // تعیین شناسه و نام کاربری ثبت‌کننده (created_by_user_id و created_by_user_name)
         $creatorId = null;
+        $creatorName = null;
         if ($user) {
             $creatorId = $user->id;
+            $creatorName = $user->username ?: ($user->name ?: $user->email);
         } elseif ($request->filled('created_by_user_id')) {
             $creatorId = (int)$request->input('created_by_user_id');
         } elseif ($request->hasHeader('X-User-Id')) {
             $creatorId = (int)$request->header('X-User-Id');
         }
 
+        if (empty($creatorName) && $request->filled('created_by_user_name')) {
+            $creatorName = $request->input('created_by_user_name');
+        }
+
+        if ($creatorId && empty($creatorName) && Schema::hasTable('users')) {
+            $foundUser = User::find($creatorId);
+            if ($foundUser) {
+                $creatorName = $foundUser->username ?: ($foundUser->name ?: $foundUser->email);
+            }
+        }
+
         if (Schema::hasColumn('contacts', 'created_by_user_id') && $creatorId) {
             $validated['created_by_user_id'] = $creatorId;
         }
 
-        if (!Schema::hasColumn('contacts', 'created_by_user_name')) {
+        if (Schema::hasColumn('contacts', 'created_by_user_name') && $creatorName) {
+            $validated['created_by_user_name'] = $creatorName;
+        } else {
             unset($validated['created_by_user_name']);
         }
 
@@ -382,6 +413,12 @@ class ContactController extends Controller
         }
         unset($validated['domain_name']);
 
+        // قانون: صرفاً کاربر ادمین، اجازه تعیین یا تغییر وضعیت به عمومی را دارد.
+        $isAdmin = ($user && isset($user->role) && $user->role === 'admin') || $request->header('X-User-Role') === 'admin';
+        if (!$isAdmin) {
+            $validated['is_public'] = false;
+        }
+
         // ثبت یا به‌روزرسانی فیلد created_by_user_id در ویرایش مخاطب
         if (Schema::hasColumn('contacts', 'created_by_user_id')) {
             if ($request->filled('created_by_user_id')) {
@@ -392,6 +429,16 @@ class ContactController extends Controller
                 } elseif ($request->hasHeader('X-User-Id')) {
                     $validated['created_by_user_id'] = (int)$request->header('X-User-Id');
                 }
+            }
+        }
+
+        // تنظیم یا حفظ نام کاربری ثبت‌کننده
+        if ($request->filled('created_by_user_name')) {
+            $validated['created_by_user_name'] = $request->input('created_by_user_name');
+        } elseif (empty($contact->created_by_user_name) && !empty($contact->created_by_user_id) && Schema::hasTable('users')) {
+            $foundUser = User::find($contact->created_by_user_id);
+            if ($foundUser) {
+                $validated['created_by_user_name'] = $foundUser->username ?: ($foundUser->name ?: $foundUser->email);
             }
         }
 

@@ -572,12 +572,16 @@ export default function App() {
         : (currentUser?.id || 1);
 
     const resolvedCreatorName =
-      contactToSave.created_by_user_name || currentUser?.name || 'کاربر سیستم';
+      contactToSave.created_by_user_name || currentUser?.username || currentUser?.name || 'کاربر سیستم';
+
+    const isAdminUser = currentUser?.role === 'admin';
+    const resolvedIsPublic = isAdminUser ? (contactToSave.is_public !== undefined ? Boolean(contactToSave.is_public) : true) : false;
 
     let finalContact: Contact = {
       ...contactToSave,
       created_by_user_id: resolvedCreatorId,
       created_by_user_name: resolvedCreatorName,
+      is_public: resolvedIsPublic,
     };
 
     // Send to Live API directly
@@ -1523,6 +1527,7 @@ export default function App() {
                 key={contact.id}
                 contact={contact}
                 currentUser={currentUser}
+                allContacts={contacts}
                 ldapDomains={ldapDomains}
                 onSelect={(c) => setSelectedContact(c)}
                 onToggleFavorite={handleToggleFavorite}
