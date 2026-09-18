@@ -226,21 +226,30 @@ export const ContactTable: React.FC<ContactTableProps> = ({
 
                   {/* Access / Ownership Scope */}
                   <td className="py-3 px-3">
-                    {isOwner ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
-                        <UserCheck className="w-3 h-3" />
-                        <span>شخصی شما</span>
-                      </span>
-                    ) : contact.is_public ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-neutral-600 bg-neutral-100 px-2 py-0.5 rounded border border-neutral-200">
-                        <Globe className="w-3 h-3 text-neutral-400" />
-                        <span>عمومی</span>
-                      </span>
-                    ) : isAdmin ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200">
-                        <span>{contact.created_by_user_name?.split(' ')[0] || `کاربر ${contact.created_by_user_id}`}</span>
-                      </span>
-                    ) : null}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {contact.is_public !== false ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-600 bg-neutral-100 px-2 py-0.5 rounded border border-neutral-200">
+                          <Globe className="w-3 h-3 text-neutral-400" />
+                          <span>عمومی</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200" title="مخاطب غیرعمومی (فقط شما و ادمین)">
+                          <Lock className="w-3 h-3 text-amber-600" />
+                          <span>خصوصی</span>
+                        </span>
+                      )}
+
+                      {isOwner ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200" title="این شماره توسط حساب کاربری شما ثبت شده است">
+                          <UserCheck className="w-3 h-3 text-emerald-600" />
+                          <span>ثبت شده توسط شما</span>
+                        </span>
+                      ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${contact.created_by_user_name || contact.created_by_user_id}`}>
+                          <span>ثبت: {contact.created_by_user_name?.split(' ')[0] || `کاربر ${contact.created_by_user_id}`}</span>
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
 
                   {/* Job Title */}
@@ -437,10 +446,10 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                 {mobItem.isPersonal && (
                                   <span
                                     className="font-sans text-[9px] bg-amber-200 text-amber-900 px-1 rounded flex items-center gap-0.5"
-                                    title="دفترچه شخصی شما"
+                                    title="شماره همراه خصوصی"
                                   >
                                     <Lock className="w-2.5 h-2.5" />
-                                    <span>شخصی</span>
+                                    <span>خصوصی</span>
                                   </span>
                                 )}
 

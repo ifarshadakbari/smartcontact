@@ -1422,8 +1422,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               </div>
 
               {/* Privacy and Visibility Scope */}
-              {isAdmin ? (
-                <div className="bg-neutral-50 p-3 rounded-xl border border-neutral-200">
+              <div className="bg-neutral-50 p-3.5 rounded-xl border border-neutral-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                   <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-neutral-800">
                     <input
                       type="checkbox"
@@ -1431,23 +1431,34 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                       onChange={(e) => setIsPublic(e.target.checked)}
                       className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
                     />
-                    <span>مخاطب عمومی سازمانی (قابل مشاهده برای تمام پرسنل در سراسر سازمان)</span>
+                    <span>مخاطب عمومی سازمانی (قابل مشاهده برای تمام پرسنل)</span>
                   </label>
-                  <p className="text-[11px] text-neutral-500 mt-1 mr-6 leading-relaxed">
-                    در صورت غیرفعال بودن این گزینه، شماره فقط برای ثبت‌کننده و ادمین‌های سیستم قابل رؤیت خواهد بود.
-                  </p>
+                  <span
+                    className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded border self-start sm:self-auto ${
+                      isPublic
+                        ? 'bg-neutral-100 text-neutral-700 border-neutral-300'
+                        : 'bg-amber-50 text-amber-800 border-amber-300'
+                    }`}
+                  >
+                    {isPublic ? (
+                      <>
+                        <Globe className="w-3.5 h-3.5 text-neutral-500" />
+                        <span>عمومی</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>خصوصی</span>
+                      </>
+                    )}
+                  </span>
                 </div>
-              ) : (
-                <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200 text-xs text-blue-950 flex items-start gap-2.5">
-                  <UserCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block">حفظ حریم خصوصی اطلاعات تماس:</span>
-                    <p className="text-[11px] text-blue-800 mt-0.5 leading-relaxed">
-                      این شماره به عنوان شماره شخصی شما در سامانه ثبت می‌شود و مطابق قوانین محرمانگی، منحصراً برای شما و ادمین مجاز سیستم قابل مشاهده خواهد بود.
-                    </p>
-                  </div>
-                </div>
-              )}
+                <p className="text-[11px] text-neutral-500 mt-1.5 leading-relaxed">
+                  {isPublic
+                    ? 'این مخاطب با برچسب «عمومی» در دفترچه تلفن برای تمام کاربران و همکاران نمایش داده خواهد شد.'
+                    : 'این مخاطب با برچسب «خصوصی» ثبت می‌شود و منحصراً برای شما و ادمین‌های سیستم قابل مشاهده خواهد بود.'}
+                </p>
+              </div>
             </form>
           ) : (
             /* View Mode */
@@ -1498,18 +1509,28 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                         {department}
                       </span>
                     )}
-                    {/* Scope indicator */}
+                    {/* Scope indicator: Public / Private */}
+                    {contact?.is_public !== false ? (
+                      <span className="bg-white/10 text-neutral-200 border border-white/10 px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1">
+                        <Globe className="w-3 h-3 text-neutral-400" />
+                        <span>عمومی</span>
+                      </span>
+                    ) : (
+                      <span className="bg-amber-500/20 text-amber-200 border border-amber-500/30 px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1">
+                        <Lock className="w-3 h-3 text-amber-300" />
+                        <span>خصوصی</span>
+                      </span>
+                    )}
+
+                    {/* Scope indicator: Creator */}
                     {isOwner ? (
-                      <span className="bg-blue-600/40 text-blue-200 border border-blue-400/30 px-2.5 py-0.5 rounded text-[11px] font-medium">
-                        شماره شخصی شما
+                      <span className="bg-emerald-600/30 text-emerald-200 border border-emerald-400/30 px-2.5 py-0.5 rounded text-[11px] font-medium inline-flex items-center gap-1">
+                        <UserCheck className="w-3 h-3 text-emerald-300" />
+                        <span>ثبت شده توسط شما</span>
                       </span>
-                    ) : contact?.is_public ? (
-                      <span className="bg-white/10 text-neutral-300 px-2 py-0.5 rounded text-[11px]">
-                        عمومی
-                      </span>
-                    ) : isAdmin ? (
-                      <span className="bg-amber-500/20 text-amber-200 border border-amber-500/30 px-2 py-0.5 rounded text-[11px]">
-                        ثبت: {contact?.created_by_user_name || 'کاربر سازمانی'}
+                    ) : isAdmin && (contact?.created_by_user_name || contact?.created_by_user_id) ? (
+                      <span className="bg-white/10 text-neutral-300 border border-white/10 px-2 py-0.5 rounded text-[11px]">
+                        ثبت: {contact?.created_by_user_name || `کاربر ${contact?.created_by_user_id}`}
                       </span>
                     ) : null}
                   </div>

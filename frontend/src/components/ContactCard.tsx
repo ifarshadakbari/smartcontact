@@ -160,19 +160,28 @@ export const ContactCard: React.FC<ContactCardProps> = ({
             </span>
           )}
 
-          {isOwner ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
-              <UserCheck className="w-3 h-3" />
-              <span>شخصی شما</span>
-            </span>
-          ) : contact.is_public ? (
+          {/* Public / Private Badge */}
+          {contact.is_public !== false ? (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded border border-neutral-200">
               <Globe className="w-3 h-3 text-neutral-400" />
               <span>عمومی</span>
             </span>
-          ) : isAdmin ? (
+          ) : (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-50 text-amber-800 px-2 py-0.5 rounded border border-amber-200" title="مخاطب غیرعمومی (فقط شما و ادمین)">
+              <Lock className="w-3 h-3 text-amber-600" />
+              <span>خصوصی</span>
+            </span>
+          )}
+
+          {/* Creator Badge: "ثبت شده توسط شما" for creator, or "ثبت: نام کاربر" for admin */}
+          {isOwner ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200" title="این شماره توسط حساب کاربری شما ثبت شده است">
+              <UserCheck className="w-3 h-3 text-emerald-600" />
+              <span>ثبت شده توسط شما</span>
+            </span>
+          ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${contact.created_by_user_name || contact.created_by_user_id}`}>
-              <span>ثبت: {contact.created_by_user_name || `کاربر ${contact.created_by_user_id}`}</span>
+              <span>ثبت: {contact.created_by_user_name?.split(' ')[0] || `کاربر ${contact.created_by_user_id}`}</span>
             </span>
           ) : null}
         </div>
@@ -360,10 +369,10 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                       {mobItem.isPersonal && (
                         <span
                           className="font-sans text-[9px] bg-amber-200 text-amber-900 px-1 py-0.2 rounded flex items-center gap-0.5"
-                          title="این شماره در دفترچه شخصی شما ذخیره شده و فقط برای شما قابل مشاهده است"
+                          title="این شماره به صورت خصوصی برای این مخاطب ذخیره شده است"
                         >
                           <Lock className="w-2.5 h-2.5" />
-                          <span>شخصی شما</span>
+                          <span>خصوصی</span>
                         </span>
                       )}
 

@@ -166,7 +166,7 @@ export default function App() {
     return 'all';
   });
   const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'public'>('all');
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'mine' | 'public' | 'private'>('all');
   const [sortBy, setSortBy] = useState<'custom' | 'name' | 'personnel_code' | 'department' | 'created_at'>('custom');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -741,11 +741,13 @@ export default function App() {
   // Filtered Contacts Logic
   const filteredContacts = useMemo(() => {
     return accessibleContacts.filter((contact) => {
-      // Scope filter (Mine vs Public vs All)
+      // Scope filter (Mine vs Public vs Private vs All)
       if (scopeFilter === 'mine') {
         if (!currentUser || contact.created_by_user_id !== currentUser.id) return false;
       } else if (scopeFilter === 'public') {
-        if (!contact.is_public) return false;
+        if (contact.is_public === false) return false;
+      } else if (scopeFilter === 'private') {
+        if (contact.is_public !== false) return false;
       }
 
       // Domain & External Company filter
@@ -1162,8 +1164,23 @@ export default function App() {
                 }`}
               >
                 <Globe className="w-3.5 h-3.5" />
-                <span>عمومی ({accessibleContacts.filter((c) => c.is_public).length})</span>
+                <span>عمومی ({accessibleContacts.filter((c) => c.is_public !== false).length})</span>
               </button>
+
+              {currentUser && (
+                <button
+                  type="button"
+                  onClick={() => setScopeFilter('private')}
+                  className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg transition cursor-pointer text-xs font-medium ${
+                    scopeFilter === 'private'
+                      ? 'bg-amber-600 text-white'
+                      : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>خصوصی ({accessibleContacts.filter((c) => c.is_public === false).length})</span>
+                </button>
+              )}
             </div>
 
             {/* View Toggle (Grid vs Table) */}
@@ -1358,7 +1375,7 @@ export default function App() {
               {currentUser?.role === 'admin' ? (
                 <span> (دسترسی ادمین: کلیه شماره‌های ثبت‌شده در پایگاه داده)</span>
               ) : currentUser ? (
-                <span> (دسترسی پرسنل: منحصراً شماره‌های شخصی شما + شماره‌های عمومی)</span>
+                <span> (دسترسی پرسنل: شماره‌های عمومی سازمان + شماره‌های ثبت‌شده توسط شما)</span>
               ) : (
                 <span> (حالت مهمان: شماره‌های عمومی ۳ دامین و شرکت‌های طرف قرارداد)</span>
               )}

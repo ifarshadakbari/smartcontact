@@ -215,6 +215,15 @@ app.get('/api/health', (req, res) => {
 app.get('/api/contacts', (req, res) => {
   let list = [...contacts];
   const { department, search } = req.query;
+  const authUserId = req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : null;
+  const authUserRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+
+  // Access control
+  if (!authUserId) {
+    list = list.filter((c) => c.is_public !== false);
+  } else if (authUserRole !== 'admin') {
+    list = list.filter((c) => c.is_public !== false || c.created_by_user_id === authUserId);
+  }
 
   if (department && department !== 'all') {
     list = list.filter((c) => c.department === department);

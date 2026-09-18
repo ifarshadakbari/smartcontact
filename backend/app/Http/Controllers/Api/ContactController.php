@@ -62,8 +62,13 @@ class ContactController extends Controller
             $query->where('department', $request->department);
         }
 
-        // تفکیک دسترسی: اگر کاربر ادمین نیست، فقط مخاطبین عمومی یا مخاطبین ثبت‌شده توسط خودش را ببیند
-        if ($user && isset($user->role) && $user->role !== 'admin') {
+        // تفکیک دسترسی:
+        // - مهمان (لاگین نکرده): منحصراً مخاطبین عمومی سازمانی
+        // - پرسنل عادی: مخاطبین عمومی سازمانی + مخاطبین ثبت‌شده توسط خود کاربر
+        // - ادمین: کلیه مخاطبین پایگاه داده
+        if (!$user) {
+            $query->where('is_public', true);
+        } elseif (isset($user->role) && $user->role !== 'admin') {
             $query->where(function ($q) use ($user) {
                 $q->where('is_public', true)
                   ->orWhere('created_by_user_id', $user->id);
