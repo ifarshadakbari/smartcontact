@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { Contact, User, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
-import { getVisibleMobiles, getDomainDisplayName, isWirelessLine } from '../utils/phoneUtils';
+import { getVisibleMobiles, getDomainDisplayName, isWirelessLine, isPureWirelessTitle, getNonWirelessTitle } from '../utils/phoneUtils';
+import { CordlessPhoneIcon } from './CordlessPhoneIcon';
 
 interface ContactCardProps {
   contact: Contact;
@@ -199,108 +200,127 @@ export const ContactCard: React.FC<ContactCardProps> = ({
             {contact.landlines
               .filter((item) => item.phone?.trim() || item.extension?.trim())
               .slice(0, 2)
-              .map((item, idx) => (
-              <div
-                key={item.id || idx}
-                className="bg-neutral-50 rounded-lg p-2.5 border border-neutral-200 flex items-center justify-between"
-              >
-                <div className="flex-1 min-w-0">
-                  {item.title && (
-                    <div className="flex items-center gap-1 text-[10px] mb-1">
-                      {isWirelessLine(item.title) ? (
-                        <span className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 font-medium">
-                          <Radio className="w-3 h-3 text-sky-600 animate-pulse" />
-                          <span>{item.title}</span>
-                          <span className="text-[9px] bg-sky-200/80 text-sky-800 px-1 rounded font-bold">بی‌سیم</span>
-                        </span>
-                      ) : (
-                        <span className="text-neutral-500 font-medium">{item.title}</span>
+              .map((item, idx) => {
+                const isWireless = isWirelessLine(item.title);
+                const customTitle = getNonWirelessTitle(item.title);
+                const showTopTitle = Boolean(customTitle);
+
+                return (
+                  <div
+                    key={item.id || idx}
+                    className="bg-neutral-50 rounded-lg p-2.5 border border-neutral-200 flex items-center justify-between"
+                  >
+                    <div className="flex-1 min-w-0">
+                      {showTopTitle && (
+                        <div className="flex items-center gap-1 text-[10px] mb-1">
+                          <span className="text-neutral-500 font-medium">{customTitle}</span>
+                        </div>
                       )}
-                    </div>
-                  )}
-                  {/* Fixed Phone with Large Blue Style - Only if phone is registered */}
-                  {item.phone && (
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <span className="text-[11px] text-neutral-500 whitespace-nowrap">تلفن ثابت:</span>
-                        <a
-                          href={`tel:${item.phone}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-base sm:text-lg font-black text-blue-600 font-mono tracking-wider hover:underline"
-                          dir="ltr"
-                        >
-                          {item.phone}
-                        </a>
-                      </div>
+                      {/* Fixed Phone with Large Blue Style - Only if phone is registered */}
+                      {item.phone && (
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                            <Phone className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span className="text-[11px] text-neutral-500 whitespace-nowrap">تلفن ثابت:</span>
+                            <a
+                              href={`tel:${item.phone}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-base sm:text-lg font-black text-blue-600 font-mono tracking-wider hover:underline"
+                              dir="ltr"
+                            >
+                              {item.phone}
+                            </a>
+                            {/* If there is no extension on this line but it is wireless, show badge next to phone */}
+                            {isWireless && !item.extension && (
+                              <span
+                                className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 font-medium text-[10.5px] whitespace-nowrap"
+                                title="تلفن بی‌سیم"
+                              >
+                                <CordlessPhoneIcon className="w-3.5 h-3.5 text-sky-600 animate-pulse shrink-0" />
+                                <span>بی‌سیم</span>
+                              </span>
+                            )}
+                          </div>
 
-                      {/* Fixed Phone Actions (Call + Copy) directly aligned with Fixed Phone */}
-                      <div className="flex items-center gap-1 shrink-0 w-[68px] justify-end">
-                        <button
-                          type="button"
-                          onClick={(e) => handleCallClick(e, item.phone, item.title || 'تلفن ثابت')}
-                          className="w-8 h-8 flex items-center justify-center bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 transition cursor-pointer text-xs shrink-0"
-                          title={
-                            currentUser
-                              ? 'تماس مستقیم با این خط تلفن از روی IP Phone شما'
-                              : 'برای تماس خودکار VoIP، وارد شوید'
-                          }
-                        >
-                          <PhoneCall className="w-4 h-4 text-emerald-600" />
-                        </button>
+                          {/* Fixed Phone Actions (Call + Copy) directly aligned with Fixed Phone */}
+                          <div className="flex items-center gap-1 shrink-0 w-[68px] justify-end">
+                            <button
+                              type="button"
+                              onClick={(e) => handleCallClick(e, item.phone, item.title || 'تلفن ثابت')}
+                              className="w-8 h-8 flex items-center justify-center bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 transition cursor-pointer text-xs shrink-0"
+                              title={
+                                currentUser
+                                  ? 'تماس مستقیم با این خط تلفن از روی IP Phone شما'
+                                  : 'برای تماس خودکار VoIP، وارد شوید'
+                              }
+                            >
+                              <PhoneCall className="w-4 h-4 text-emerald-600" />
+                            </button>
 
-                        <button
-                          type="button"
-                          onClick={(e) => handleCopy(e, item.phone, `phone-${contact.id}-${idx}`)}
-                          className="w-8 h-8 flex items-center justify-center bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-neutral-600 hover:text-neutral-900 transition cursor-pointer text-xs shrink-0"
-                          title="کپی شماره تلفن ثابت"
-                        >
-                          {copiedKey === `phone-${contact.id}-${idx}` ? (
-                            <Check className="w-4 h-4 text-emerald-600" />
-                          ) : (
-                            <Copy className="w-4 h-4 text-neutral-400" />
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopy(e, item.phone, `phone-${contact.id}-${idx}`)}
+                              className="w-8 h-8 flex items-center justify-center bg-white hover:bg-neutral-100 border border-neutral-300 rounded-lg text-neutral-600 hover:text-neutral-900 transition cursor-pointer text-xs shrink-0"
+                              title="کپی شماره تلفن ثابت"
+                            >
+                              {copiedKey === `phone-${contact.id}-${idx}` ? (
+                                <Check className="w-4 h-4 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-neutral-400" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Extension in neat badge with direct click-to-call */}
+                      {item.extension && (
+                        <div className={`flex items-center justify-between gap-2 ${item.phone ? 'mt-1.5' : ''}`}>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] text-neutral-500 whitespace-nowrap">شماره داخلی:</span>
+                            <span
+                              className={`font-mono px-2 py-0.5 rounded inline-flex items-center justify-center ${
+                                contact.contact_type !== 'external'
+                                  ? 'text-base sm:text-lg font-black text-neutral-900 bg-neutral-200/90 tracking-wider min-h-[32px]'
+                                  : 'font-bold text-neutral-800 bg-neutral-200/80 text-xs min-h-[26px]'
+                              }`}
+                              dir="ltr"
+                            >
+                              {item.extension}
+                            </span>
+
+                            {/* برچسب بی‌سیم همراه با آیکون اختصاصی تلفن بی‌سیم دقیقاً کنار شماره داخلی */}
+                            {isWireless && (
+                              <span
+                                className="inline-flex items-center gap-1 text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-200 font-medium text-[10.5px] whitespace-nowrap shadow-xs"
+                                title="تلفن داخلی بی‌سیم"
+                              >
+                                <CordlessPhoneIcon className="w-3.5 h-3.5 text-sky-600 animate-pulse shrink-0" />
+                                <span>بی‌سیم</span>
+                              </span>
+                            )}
+                          </div>
+                          {contact.contact_type !== 'external' && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCallClick(e, item.extension!, `داخلی ${item.extension}`)}
+                              className="w-[68px] h-8 rounded-lg border border-emerald-300 inline-flex items-center justify-center gap-1 transition cursor-pointer font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 shrink-0 text-xs"
+                              title={
+                                currentUser
+                                  ? 'تماس مستقیم با این داخلی از طریق IP Phone شما'
+                                  : 'برای تماس خودکار VoIP، وارد شوید'
+                              }
+                            >
+                              <PhoneCall className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span className="text-[11px] leading-none whitespace-nowrap">تماس</span>
+                            </button>
                           )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Extension in neat badge with direct click-to-call */}
-                  {item.extension && (
-                    <div className={`flex items-center justify-between gap-2 ${item.phone ? 'mt-1.5' : ''}`}>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-neutral-500 whitespace-nowrap">شماره داخلی:</span>
-                        <span
-                          className={`font-mono px-2 py-0.5 rounded inline-flex items-center justify-center ${
-                            contact.contact_type !== 'external'
-                              ? 'text-base sm:text-lg font-black text-neutral-900 bg-neutral-200/90 tracking-wider min-h-[32px]'
-                              : 'font-bold text-neutral-800 bg-neutral-200/80 text-xs min-h-[26px]'
-                          }`}
-                          dir="ltr"
-                        >
-                          {item.extension}
-                        </span>
-                      </div>
-                      {contact.contact_type !== 'external' && (
-                        <button
-                          type="button"
-                          onClick={(e) => handleCallClick(e, item.extension!, `داخلی ${item.extension}`)}
-                          className="w-[68px] h-8 rounded-lg border border-emerald-300 inline-flex items-center justify-center gap-1 transition cursor-pointer font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 shrink-0 text-xs"
-                          title={
-                            currentUser
-                              ? 'تماس مستقیم با این داخلی از طریق IP Phone شما'
-                              : 'برای تماس خودکار VoIP، وارد شوید'
-                          }
-                        >
-                          <PhoneCall className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="text-[11px] leading-none whitespace-nowrap">تماس</span>
-                        </button>
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            ))}
+                  </div>
+                );
+              })}
           </div>
         )}
 

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Contact, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
+import { CordlessPhoneIcon } from './CordlessPhoneIcon';
 import { getDomainDisplayName, isWirelessLine } from '../utils/phoneUtils';
 
 interface DragOrderModalProps {
@@ -347,22 +348,23 @@ export const DragOrderModal: React.FC<DragOrderModalProps> = ({
                             {domainName}
                           </span>
                         )}
-
-                        {isWireless && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] bg-teal-100 text-teal-800 px-1.5 py-0.2 rounded font-medium shrink-0">
-                            <Radio className="w-3 h-3 text-teal-600" />
-                            <span>بی‌سیم</span>
-                          </span>
-                        )}
                       </div>
 
                       <div className="flex items-center gap-3 text-[11px] text-neutral-500 mt-0.5 truncate">
                         {item.job_title && <span>{item.job_title}</span>}
                         {item.department && <span>• {item.department}</span>}
                         {Array.isArray(item.landlines) && item.landlines.length > 0 && item.landlines[0] && (
-                          <span className="font-mono text-[10px] text-blue-600 dir-ltr">
-                            {item.landlines[0].extension ? `Ext: ${item.landlines[0].extension}` : item.landlines[0].phone}
-                          </span>
+                          <div className="inline-flex items-center gap-1.5 shrink-0">
+                            <span className="font-mono text-[10px] text-blue-600 dir-ltr">
+                              {item.landlines[0].extension ? `Ext: ${item.landlines[0].extension}` : item.landlines[0].phone}
+                            </span>
+                            {isWireless && (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-medium shrink-0">
+                                <CordlessPhoneIcon className="w-2.5 h-2.5 text-sky-600" />
+                                <span>بی‌سیم</span>
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>

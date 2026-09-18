@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Contact, LandlineEntry, PrefixTitle, User, Department, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
+import { CordlessPhoneIcon } from './CordlessPhoneIcon';
 import { resizeAvatarImage, getBase64SizeInKb } from '../utils/imageUtils';
 import {
   getVisibleMobiles,
@@ -1273,7 +1274,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                           </label>
                           {isWirelessLine(landline.title) ? (
                             <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-sky-700 bg-sky-100 px-1 py-0.2 rounded border border-sky-300">
-                              <Radio className="w-2.5 h-2.5 text-sky-600 animate-pulse" />
+                              <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
                               <span>بی‌سیم</span>
                             </span>
                           ) : !landline.title ? (
@@ -1283,7 +1284,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                               className="inline-flex items-center gap-1 text-[9px] text-neutral-400 hover:text-sky-700 cursor-pointer transition font-medium"
                               title="درج خودکار عنوان بی‌سیم"
                             >
-                              <Radio className="w-2.5 h-2.5 text-sky-600" />
+                              <CordlessPhoneIcon className="w-3 h-3 text-sky-600" />
                               <span>درج سریع: بی‌سیم</span>
                             </button>
                           ) : null}
@@ -1301,7 +1302,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                             }`}
                           />
                           {isWirelessLine(landline.title) && (
-                            <Radio className="w-3.5 h-3.5 text-sky-600 absolute left-2 top-2 pointer-events-none" />
+                            <CordlessPhoneIcon className="w-3.5 h-3.5 text-sky-600 absolute left-2 top-2 pointer-events-none" />
                           )}
                         </div>
                       </div>

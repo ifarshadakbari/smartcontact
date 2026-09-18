@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Copy, Check, Star, ArrowUpRight, Phone, Smartphone, MapPin, UserCheck, Globe, PhoneCall, Network, Building2, Lock, Shield, Radio, GripVertical } from 'lucide-react';
 import { Contact, User, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
-import { getVisibleMobiles, getDomainDisplayName, isWirelessLine } from '../utils/phoneUtils';
+import { getVisibleMobiles, getDomainDisplayName, isWirelessLine, isPureWirelessTitle, getNonWirelessTitle } from '../utils/phoneUtils';
+import { CordlessPhoneIcon } from './CordlessPhoneIcon';
 
 interface ContactTableProps {
   contacts: Contact[];
@@ -332,24 +333,30 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                               </div>
                             ) : null}
 
-                            {l.title && (
-                              <span
-                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${
-                                  isWirelessLine(l.title)
-                                    ? 'bg-sky-50 text-sky-700 border border-sky-200 font-semibold'
-                                    : 'text-neutral-500 bg-neutral-50 border border-neutral-200'
-                                }`}
-                              >
-                                {isWirelessLine(l.title) && <Radio className="w-3 h-3 text-sky-600 animate-pulse" />}
-                                <span>{l.title}</span>
-                                {isWirelessLine(l.title) && (
-                                  <span className="text-[8px] bg-sky-200/80 text-sky-800 px-0.5 rounded font-bold">بی‌سیم</span>
-                                )}
-                              </span>
-                            )}
+                            {/* Title / Non-wireless description */}
+                            {(() => {
+                              const isWireless = isWirelessLine(l.title);
+                              const customTitle = getNonWirelessTitle(l.title);
+                              if (customTitle) {
+                                return (
+                                  <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
+                                    {customTitle}
+                                  </span>
+                                );
+                              }
+                              if (isWireless && !l.extension) {
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-medium">
+                                    <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
+                                    <span>بی‌سیم</span>
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
 
                             {l.extension && (
-                              <div className="inline-flex items-center gap-1">
+                              <div className="inline-flex items-center gap-1.5 flex-wrap">
                                 <span
                                   className={`font-mono text-neutral-800 rounded border ${
                                     contact.contact_type !== 'external'
@@ -360,6 +367,18 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                 >
                                   داخلی: {l.extension}
                                 </span>
+
+                                {/* برچسب بی‌سیم همراه با آیکون اختصاصی تلفن بی‌سیم دقیقاً کنار شماره داخلی */}
+                                {isWirelessLine(l.title) && (
+                                  <span
+                                    className="inline-flex items-center gap-1 text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200 font-medium whitespace-nowrap"
+                                    title="تلفن داخلی بی‌سیم"
+                                  >
+                                    <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
+                                    <span>بی‌سیم</span>
+                                  </span>
+                                )}
+
                                 {contact.contact_type !== 'external' && (
                                   <button
                                     type="button"

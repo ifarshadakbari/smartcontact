@@ -164,8 +164,44 @@ export function isWirelessLine(titleOrLandlines?: any): boolean {
     clean === 'بیسیم' ||
     clean.includes('بیسیم') ||
     clean === 'wireless' ||
+    clean === 'dect' ||
     clean === 'radio'
   );
+}
+
+/**
+ * Checks if a title is purely indicating that the line is wireless (e.g. "بی سیم", "بیسیم", "بی‌سیم", "تلفن بی‌سیم")
+ * so that we don't display "بی سیم" twice when a wireless badge is present.
+ */
+export function isPureWirelessTitle(title?: string | null): boolean {
+  if (!title || typeof title !== 'string') return false;
+  const clean = title
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  return (
+    clean === 'بیسیم' ||
+    clean === 'تلفنبیسیم' ||
+    clean === 'خطبیسیم' ||
+    clean === 'داخلیبیسیم' ||
+    clean === 'گوشیبیسیم' ||
+    clean === 'wireless' ||
+    clean === 'dect' ||
+    clean === 'radio'
+  );
+}
+
+/**
+ * Extracts non-wireless descriptive parts from a title (e.g. "انبار - بی‌سیم" -> "انبار")
+ */
+export function getNonWirelessTitle(title?: string | null): string {
+  if (!title || typeof title !== 'string') return '';
+  if (isPureWirelessTitle(title)) return '';
+  return title
+    .replace(/(?:تلفن\s*)?(?:بی[\s‌-]*سیم|بیسیم|wireless|dect)/gi, '')
+    .replace(/^[\s\-–—:،,]+|[\s\-–—:،,]+$/g, '')
+    .trim();
 }
 
 /**
