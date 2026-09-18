@@ -14,6 +14,7 @@ use App\Models\User;
 */
 // روت نشان‌شده‌ها (Toggle Favorite) با پشتیبانی از Sanctum یا تشخیص هویت هدر
 Route::post('/contacts/{contact}/favorite', [ContactController::class, 'favorite']);
+Route::post('/contacts/{contact}/personal-mobiles', [ContactController::class, 'updatePersonalMobiles']);
 
 // روت‌های اصلی مدیریت مخاطبین
 Route::get('/contacts', [ContactController::class, 'index']);

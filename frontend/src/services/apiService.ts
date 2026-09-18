@@ -378,7 +378,10 @@ export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Conta
       company_name: item.company_name || '',
       is_favorite: Boolean(item.is_favorite),
       created_by_user_id: item.created_by_user_id,
+      created_by_user_name: item.created_by_user_name || undefined,
       is_public: item.is_public !== undefined ? Boolean(item.is_public) : true,
+      is_mobile_public: item.is_mobile_public !== undefined ? Boolean(item.is_mobile_public) : false,
+      personal_mobiles: item.personal_mobiles && typeof item.personal_mobiles === 'object' ? item.personal_mobiles : {},
       display_order: typeof item.display_order === 'number' ? item.display_order : undefined,
       created_at: item.created_at,
       updated_at: item.updated_at,
@@ -497,6 +500,8 @@ export const saveContactToApi = async (
     domain_name: contact.contact_type === 'internal' ? (contact.domain_name || contact.domain || null) : null,
     company_name: contact.contact_type === 'external' ? (contact.company_name || null) : null,
     is_public: contact.is_public !== undefined ? Boolean(contact.is_public) : true,
+    is_mobile_public: contact.is_mobile_public !== undefined ? Boolean(contact.is_mobile_public) : false,
+    personal_mobiles: contact.personal_mobiles && typeof contact.personal_mobiles === 'object' ? contact.personal_mobiles : {},
     is_favorite: Boolean(contact.is_favorite),
     created_by_user_id: resolvedCreatedById,
     created_by_user_name: resolvedCreatedByName,
@@ -608,7 +613,65 @@ export const saveContactToApi = async (
     prefix_title: isResultLocation ? 'location' : (contact.prefix_title || savedItem.prefix_title || 'mr'),
     last_name: cleanSavedLastName,
     description: cleanSavedDesc,
+    is_mobile_public: savedItem.is_mobile_public !== undefined ? Boolean(savedItem.is_mobile_public) : (contact.is_mobile_public ?? false),
+    personal_mobiles: savedItem.personal_mobiles && typeof savedItem.personal_mobiles === 'object'
+      ? savedItem.personal_mobiles
+      : (contact.personal_mobiles || {}),
   };
+};
+
+/**
+ * Save personal mobiles to backend API (Personal Overlay in user notebook)
+ */
+export const savePersonalMobilesToApi = async (
+  contactId: number | string,
+  personalMobiles: Record<string | number, string[]>
+): Promise<Contact | null> => {
+  const config = getSavedLaravelConfig();
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/contacts/${contactId}/personal-mobiles`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  const token = config.token || getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const authUser = getStoredAuthUser();
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
+  }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
+  }
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ personal_mobiles: personalMobiles }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.data || data;
+    }
+
+    // Fallback to standard PUT /contacts/:id if dedicated endpoint is not yet defined on target
+    const putUrl = `${baseUrl}${config.apiPrefix}/contacts/${contactId}`;
+    const putRes = await fetch(putUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ personal_mobiles: personalMobiles }),
+    });
+    if (putRes.ok) {
+      const putData = await putRes.json();
+      return putData.data || putData;
+    }
+  } catch (err) {
+    console.warn('Network error saving personal mobiles to API:', err);
+  }
+  return null;
 };
 
 /**

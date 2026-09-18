@@ -278,6 +278,11 @@ export function createApiMiddleware() {
       : (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1);
     const creatorName = data.created_by_user_name || 'کاربر سیستم';
 
+    const userRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+    const isAdmin = userRole === 'admin';
+    const isPublic = isAdmin ? (data.is_public !== undefined ? Boolean(data.is_public) : true) : false;
+    const isMobilePublic = isAdmin && isPublic ? Boolean(data.is_mobile_public) : false;
+
     const newContact = {
       ...data,
       id: newId,
@@ -287,7 +292,9 @@ export function createApiMiddleware() {
       domain_id: matchedDom ? String(matchedDom.id) : (data.domain_id ? String(data.domain_id) : ''),
       domain_name: matchedDom ? matchedDom.display_name : (data.domain_name || ''),
       is_favorite: Boolean(data.is_favorite),
-      is_public: data.is_public !== undefined ? Boolean(data.is_public) : true,
+      is_public: isPublic,
+      is_mobile_public: isMobilePublic,
+      personal_mobiles: data.personal_mobiles && typeof data.personal_mobiles === 'object' ? data.personal_mobiles : {},
       mobiles: Array.isArray(data.mobiles) ? data.mobiles : [],
       landlines: Array.isArray(data.landlines) ? data.landlines : [],
       created_at: new Date().toISOString(),
@@ -321,6 +328,9 @@ export function createApiMiddleware() {
         )
       : null;
 
+    const userRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+    const isAdmin = userRole === 'admin';
+
     const existingCreatorId = contacts[index].created_by_user_id;
     const creatorId = data.created_by_user_id !== undefined && data.created_by_user_id !== null && data.created_by_user_id !== 0
       ? Number(data.created_by_user_id)
@@ -328,12 +338,28 @@ export function createApiMiddleware() {
 
     const creatorName = data.created_by_user_name || contacts[index].created_by_user_name || 'کاربر سیستم';
 
+    // حفظ وضعیت عمومی بودن مخاطب برای کاربر غیر ادمین
+    const isPublic = isAdmin
+      ? (data.is_public !== undefined ? Boolean(data.is_public) : contacts[index].is_public)
+      : contacts[index].is_public;
+
+    const isMobilePublic = isAdmin && isPublic
+      ? (data.is_mobile_public !== undefined ? Boolean(data.is_mobile_public) : contacts[index].is_mobile_public)
+      : contacts[index].is_mobile_public;
+
+    const mergedPersonalMobiles = data.personal_mobiles !== undefined && typeof data.personal_mobiles === 'object'
+      ? { ...(contacts[index].personal_mobiles || {}), ...data.personal_mobiles }
+      : (contacts[index].personal_mobiles || {});
+
     const updated = {
       ...contacts[index],
       ...data,
       id: contacts[index].id,
       created_by_user_id: creatorId,
       created_by_user_name: creatorName,
+      is_public: isPublic,
+      is_mobile_public: isMobilePublic,
+      personal_mobiles: mergedPersonalMobiles,
       domain: matchedDom ? matchedDom.name : (data.domain ?? contacts[index].domain),
       domain_id: matchedDom ? String(matchedDom.id) : (data.domain_id ? String(data.domain_id) : contacts[index].domain_id),
       domain_name: matchedDom ? matchedDom.display_name : (data.domain_name ?? contacts[index].domain_name),
@@ -341,6 +367,29 @@ export function createApiMiddleware() {
     };
     contacts[index] = updated;
     res.json({ status: 'success', data: updated, message: 'اطلاعات مخاطب به‌روزرسانی شد.' });
+  });
+
+  // ثبت و به‌روزرسانی اختصاصی شماره‌های همراه در دفترچه تلفن شخصی کاربر (Personal Overlay)
+  router.post('/contacts/:id/personal-mobiles', (req, res) => {
+    const id = req.params.id;
+    const index = contacts.findIndex((c) => String(c.id) === String(id));
+    if (index === -1) {
+      return res.status(404).json({ error: 'مخاطب یافت نشد.' });
+    }
+
+    const incoming = req.body.personal_mobiles;
+    if (incoming && typeof incoming === 'object') {
+      contacts[index].personal_mobiles = {
+        ...(contacts[index].personal_mobiles || {}),
+        ...incoming,
+      };
+    }
+    contacts[index].updated_at = new Date().toISOString();
+    res.json({
+      status: 'success',
+      data: contacts[index],
+      message: 'شماره‌های دفترچه تلفن شخصی با موفقیت در دیتابیس ثبت شد.',
+    });
   });
 
   router.delete('/contacts/:id', (req, res) => {

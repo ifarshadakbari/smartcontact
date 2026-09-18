@@ -28,6 +28,8 @@ class Contact extends Model
         'is_favorite',
         'created_by_user_id',
         'is_public',
+        'is_mobile_public',
+        'personal_mobiles',
         'display_order',
     ];
 
@@ -43,6 +45,8 @@ class Contact extends Model
         'landlines' => 'array',
         'is_favorite' => 'boolean',
         'is_public' => 'boolean',
+        'is_mobile_public' => 'boolean',
+        'personal_mobiles' => 'array',
         'display_order' => 'integer',
         'domain_id' => 'integer',
         'created_by_user_id' => 'integer',

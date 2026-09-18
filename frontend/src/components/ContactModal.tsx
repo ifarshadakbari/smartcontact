@@ -57,6 +57,7 @@ interface ContactModalProps {
   ldapDomains?: LdapDomain[];
   onClose: () => void;
   onSave: (contact: Contact) => Promise<void> | void;
+  onUpdatePersonalMobiles?: (contactId: number | string, updatedPersonalMobiles: Record<string | number, string[]>) => Promise<void> | void;
   onDelete?: (id: number | string) => void;
   onToggleFavorite?: (id: number | string) => void;
   onInitiateCall?: (targetNumber: string, contact: Contact, title?: string) => void;
@@ -76,6 +77,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   ldapDomains = [],
   onClose,
   onSave,
+  onUpdatePersonalMobiles,
   onDelete,
   onToggleFavorite,
   onInitiateCall,
@@ -131,6 +133,9 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   const [isFavorite, setIsFavorite] = useState<boolean>(() => Boolean(contact?.is_favorite));
 
   // Personal Overlay Form State (Detail View)
+  const [personalMobilesState, setPersonalMobilesState] = useState<Record<string | number, string[]>>(
+    contact?.personal_mobiles || {}
+  );
   const [showPersonalOverlayForm, setShowPersonalOverlayForm] = useState(false);
   const [newPersonalMobile, setNewPersonalMobile] = useState('');
   const [personalOverlayError, setPersonalOverlayError] = useState<string | null>(null);
@@ -150,6 +155,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
     setNewPersonalMobile('');
 
     if (contact) {
+      setPersonalMobilesState(contact.personal_mobiles || {});
       setContactType(contact.contact_type || 'internal');
       const foundDom = ldapDomains.find(
         (d) =>
@@ -395,44 +401,64 @@ export const ContactModal: React.FC<ContactModalProps> = ({
     }
 
     // بررسی تکرار در دفترچه شخصی همین کاربر
-    const existingPersonal = contact.personal_mobiles?.[currentUser.id] || [];
+    const existingPersonal = personalMobilesState[currentUser.id] || contact.personal_mobiles?.[currentUser.id] || [];
     if (existingPersonal.some((p) => normalizePhoneNumber(p) === normalizedToCompare)) {
       setPersonalOverlayError('این شماره همراه قبلاً در دفترچه شخصی شما برای این مخاطب ذخیره شده است.');
       return;
     }
 
     const updatedPersonalList = [...existingPersonal, formattedNumber];
-    const updatedContact: Contact = {
-      ...contact,
-      personal_mobiles: {
-        ...(contact.personal_mobiles || {}),
-        [currentUser.id]: updatedPersonalList,
-      },
+    const updatedPersonalMobiles = {
+      ...personalMobilesState,
+      ...(contact.personal_mobiles || {}),
+      [currentUser.id]: updatedPersonalList,
     };
 
-    onSave(updatedContact);
+    setPersonalMobilesState(updatedPersonalMobiles);
+
+    const updatedContact: Contact = {
+      ...contact,
+      personal_mobiles: updatedPersonalMobiles,
+    };
+
+    if (onUpdatePersonalMobiles) {
+      onUpdatePersonalMobiles(contact.id, updatedPersonalMobiles);
+    } else {
+      onSave(updatedContact);
+    }
+
     setNewPersonalMobile('');
-    setPersonalOverlaySuccess(`شماره «${formattedNumber}» با موفقیت در دفترچه شخصی شما ذخیره شد و فقط برای حساب کاربری شما نمایش داده می‌شود.`);
+    setPersonalOverlaySuccess(`شماره «${formattedNumber}» با موفقیت در دفترچه شخصی شما ذخیره شد و در دیتابیس ثبت گردید.`);
     setShowPersonalOverlayForm(false);
   };
 
   const handleRemovePersonalMobile = (phoneToRemove: string) => {
     if (!currentUser || !contact) return;
     const cleanToRemove = normalizePhoneNumber(phoneToRemove);
-    const existingPersonal = contact.personal_mobiles?.[currentUser.id] || [];
+    const existingPersonal = personalMobilesState[currentUser.id] || contact.personal_mobiles?.[currentUser.id] || [];
     const updatedPersonalList = existingPersonal.filter(
       (p) => normalizePhoneNumber(p) !== cleanToRemove
     );
 
-    const updatedContact: Contact = {
-      ...contact,
-      personal_mobiles: {
-        ...(contact.personal_mobiles || {}),
-        [currentUser.id]: updatedPersonalList,
-      },
+    const updatedPersonalMobiles = {
+      ...personalMobilesState,
+      ...(contact.personal_mobiles || {}),
+      [currentUser.id]: updatedPersonalList,
     };
 
-    onSave(updatedContact);
+    setPersonalMobilesState(updatedPersonalMobiles);
+
+    const updatedContact: Contact = {
+      ...contact,
+      personal_mobiles: updatedPersonalMobiles,
+    };
+
+    if (onUpdatePersonalMobiles) {
+      onUpdatePersonalMobiles(contact.id, updatedPersonalMobiles);
+    } else {
+      onSave(updatedContact);
+    }
+
     setPersonalOverlaySuccess(`شماره «${phoneToRemove}» از دفترچه تلفن شخصی شما حذف گردید.`);
   };
 
@@ -1782,7 +1808,10 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
                 {/* Visible Mobiles Display */}
                 {(() => {
-                  const visibleMobiles = contact ? getVisibleMobiles(contact, currentUser) : [];
+                  const effectiveContact = contact
+                    ? { ...contact, personal_mobiles: personalMobilesState }
+                    : null;
+                  const visibleMobiles = effectiveContact ? getVisibleMobiles(effectiveContact, currentUser) : [];
                   if (visibleMobiles.length > 0) {
                     return (
                       <div className="space-y-2.5">

@@ -46,6 +46,7 @@ import {
   saveContactsOrderToApi,
   fetchContactsFromApi,
   saveContactToApi,
+  savePersonalMobilesToApi,
   deleteContactFromApi,
   toggleFavoriteOnApi,
   fetchDomainsFromApi,
@@ -547,14 +548,26 @@ export default function App() {
     }
 
     const exists = contacts.some((c) => String(c.id) === String(contactToSave.id));
+    const existing = exists ? contacts.find((c) => String(c.id) === String(contactToSave.id)) : null;
 
-    // کنترل سطح دسترسی: کاربر عادی فقط حق ویرایش مخاطب ایجادشده توسط خودش را دارد (ادمین حق ویرایش همه را دارد)
-    if (exists) {
-      const existing = contacts.find((c) => String(c.id) === String(contactToSave.id));
+    // کنترل سطح دسترسی:
+    // - کاربر عادی مجاز به ویرایش فیلدهای اصلی مخاطب ایجادشده توسط دیگران نیست.
+    // - اما کلیه کاربران لاگین مجاز هستند شماره همراه در دفترچه تلفن شخصی (personal_mobiles) خود را چه برای مخاطبینی که خود ثبت کرده‌اند و چه مخاطبین عمومی ثبت نمایند.
+    if (exists && existing) {
       const isAdmin = currentUser?.role === 'admin';
       const isOwner = existing && currentUser ? String(existing.created_by_user_id) === String(currentUser.id) : false;
       const isSystemContact = !existing?.created_by_user_id;
-      if (currentUser && !isAdmin && !isOwner && !isSystemContact) {
+
+      const isOnlyPersonalMobilesUpdate =
+        Boolean(currentUser) &&
+        existing.first_name === contactToSave.first_name &&
+        existing.last_name === contactToSave.last_name &&
+        existing.job_title === contactToSave.job_title &&
+        existing.department === contactToSave.department &&
+        existing.location === contactToSave.location &&
+        existing.email === contactToSave.email;
+
+      if (currentUser && !isAdmin && !isOwner && !isSystemContact && !isOnlyPersonalMobilesUpdate) {
         showToast('شما فقط مجاز به ویرایش مخاطبینی هستید که خودتان در سامانه ثبت کرده‌اید.');
         return;
       }
@@ -566,19 +579,35 @@ export default function App() {
       }
     }
 
-    const resolvedCreatorId =
-      contactToSave.created_by_user_id !== undefined && contactToSave.created_by_user_id !== null && contactToSave.created_by_user_id !== 0
-        ? contactToSave.created_by_user_id
-        : (currentUser?.id || 1);
-
-    const resolvedCreatorName =
-      contactToSave.created_by_user_name || currentUser?.username || currentUser?.name || 'کاربر سیستم';
-
     const isAdminUser = currentUser?.role === 'admin';
-    const resolvedIsPublic = isAdminUser ? (contactToSave.is_public !== undefined ? Boolean(contactToSave.is_public) : true) : false;
-    const resolvedIsMobilePublic = (isAdminUser && resolvedIsPublic)
-      ? (contactToSave.contact_type === 'internal' ? Boolean(contactToSave.is_mobile_public) : true)
-      : false;
+
+    // اگر مخاطب موجود است و کاربر غیر ادمین در حال ویرایش است (مثلاً ثبت شماره شخصی)، وضعیت عمومی بودن مخاطب باید محفوظ بماند
+    const resolvedIsPublic = existing
+      ? (isAdminUser ? (contactToSave.is_public !== undefined ? Boolean(contactToSave.is_public) : existing.is_public) : existing.is_public)
+      : (isAdminUser ? (contactToSave.is_public !== undefined ? Boolean(contactToSave.is_public) : true) : false);
+
+    const resolvedIsMobilePublic = existing
+      ? (isAdminUser && resolvedIsPublic
+          ? (contactToSave.is_mobile_public !== undefined ? Boolean(contactToSave.is_mobile_public) : (existing.is_mobile_public ?? false))
+          : (existing.is_mobile_public ?? false))
+      : (isAdminUser && resolvedIsPublic
+          ? (contactToSave.contact_type === 'internal' ? Boolean(contactToSave.is_mobile_public) : true)
+          : false);
+
+    const resolvedCreatorId = existing
+      ? (existing.created_by_user_id || 1)
+      : (contactToSave.created_by_user_id !== undefined && contactToSave.created_by_user_id !== null && contactToSave.created_by_user_id !== 0
+          ? contactToSave.created_by_user_id
+          : (currentUser?.id || 1));
+
+    const resolvedCreatorName = existing
+      ? (existing.created_by_user_name || 'کاربر سیستم')
+      : (contactToSave.created_by_user_name || currentUser?.username || currentUser?.name || 'کاربر سیستم');
+
+    const mergedPersonalMobiles = {
+      ...(existing?.personal_mobiles || {}),
+      ...(contactToSave.personal_mobiles || {}),
+    };
 
     let finalContact: Contact = {
       ...contactToSave,
@@ -586,6 +615,7 @@ export default function App() {
       created_by_user_name: resolvedCreatorName,
       is_public: resolvedIsPublic,
       is_mobile_public: resolvedIsMobilePublic,
+      personal_mobiles: mergedPersonalMobiles,
     };
 
     // Send to Live API directly
@@ -641,6 +671,43 @@ export default function App() {
     recordApiCall(1);
     updateContacts(updated);
     setIsCreateModalOpen(false);
+  };
+
+  // ثبت و به‌روزرسانی مستقیم شماره‌های همراه در دفترچه تلفن شخصی کاربر
+  const handleUpdatePersonalMobiles = async (
+    contactId: number | string,
+    updatedPersonalMobiles: Record<string | number, string[]>
+  ) => {
+    if (!currentUser) {
+      showToast('برای ثبت در دفترچه تلفن شخصی، ابتدا وارد حساب کاربری خود شوید.');
+      setIsLoginModalOpen(true);
+      return;
+    }
+
+    const targetIndex = contacts.findIndex((c) => String(c.id) === String(contactId));
+    if (targetIndex === -1) return;
+
+    const currentContact = contacts[targetIndex];
+    const updatedContact: Contact = {
+      ...currentContact,
+      personal_mobiles: updatedPersonalMobiles,
+      updated_at: new Date().toISOString(),
+    };
+
+    const updatedContacts = [...contacts];
+    updatedContacts[targetIndex] = updatedContact;
+    updateContacts(updatedContacts);
+
+    if (selectedContact && String(selectedContact.id) === String(contactId)) {
+      setSelectedContact(updatedContact);
+    }
+
+    try {
+      await savePersonalMobilesToApi(contactId, updatedPersonalMobiles);
+      recordApiCall(1);
+    } catch (err) {
+      console.warn('Could not sync personal mobiles to API, stored locally:', err);
+    }
   };
 
   // Delete Contact
@@ -1694,6 +1761,7 @@ export default function App() {
           ldapDomains={ldapDomains}
           onClose={() => setSelectedContact(null)}
           onSave={handleSaveContact}
+          onUpdatePersonalMobiles={handleUpdatePersonalMobiles}
           onDelete={handleDeleteContact}
           onToggleFavorite={handleToggleFavorite}
           onInitiateCall={handleInitiateCall}

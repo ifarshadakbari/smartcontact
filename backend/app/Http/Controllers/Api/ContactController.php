@@ -151,12 +151,12 @@ class ContactController extends Controller
             'domain_id'           => 'nullable|max:100',
             'domain_name'         => 'nullable|string|max:100',
             'is_public'           => 'nullable|boolean',
+            'is_mobile_public'    => 'nullable|boolean',
+            'personal_mobiles'    => 'nullable|array',
             'is_favorite'         => 'nullable|boolean',
             'created_by_user_id'  => 'nullable|integer',
             'created_by_user_name'=> 'nullable|string|max:150',
         ]);
-
-        // تطبیق و استخراج domain_id عددی و نام دامین
         $rawDomainId = $request->input('domain_id');
         $rawDomain = $request->input('domain') ?? $request->input('domain_name');
 
@@ -209,6 +209,14 @@ class ContactController extends Controller
         $isAdmin = ($user && isset($user->role) && $user->role === 'admin') || $request->header('X-User-Role') === 'admin';
         if (!$isAdmin) {
             $validated['is_public'] = false;
+            $validated['is_mobile_public'] = false;
+        } else {
+            $contactType = $validated['contact_type'] ?? 'internal';
+            if ($contactType === 'external') {
+                $validated['is_mobile_public'] = true;
+            } else {
+                $validated['is_mobile_public'] = !empty($validated['is_mobile_public']);
+            }
         }
 
         // تعیین شناسه و نام کاربری ثبت‌کننده (created_by_user_id و created_by_user_name)
@@ -332,7 +340,10 @@ class ContactController extends Controller
         $user = $this->resolveUser($request);
 
         // کنترل دسترسی: کاربر عادی فقط مجاز به ویرایش مخاطبینی است که خودش ایجاد کرده است
-        if ($user && isset($user->role) && $user->role !== 'admin') {
+        // مگر اینکه صرفاً در حال به‌روزرسانی شماره‌های همراه در دفترچه شخصی (personal_mobiles) خود باشد
+        $isOnlyPersonalMobiles = $request->has('personal_mobiles') && count($request->except(['personal_mobiles', '_token', '_method'])) === 0;
+
+        if ($user && isset($user->role) && $user->role !== 'admin' && !$isOnlyPersonalMobiles) {
             if (!empty($contact->created_by_user_id) && (int)$contact->created_by_user_id !== (int)$user->id) {
                 return response()->json([
                     'status'  => 'error',
@@ -359,6 +370,8 @@ class ContactController extends Controller
             'domain_id'           => 'nullable|max:100',
             'domain_name'         => 'nullable|string|max:100',
             'is_public'           => 'nullable|boolean',
+            'is_mobile_public'    => 'nullable|boolean',
+            'personal_mobiles'    => 'nullable|array',
             'is_favorite'         => 'nullable|boolean',
             'created_by_user_id'  => 'nullable|integer',
             'created_by_user_name'=> 'nullable|string|max:150',
@@ -416,7 +429,16 @@ class ContactController extends Controller
         // قانون: صرفاً کاربر ادمین، اجازه تعیین یا تغییر وضعیت به عمومی را دارد.
         $isAdmin = ($user && isset($user->role) && $user->role === 'admin') || $request->header('X-User-Role') === 'admin';
         if (!$isAdmin) {
-            $validated['is_public'] = false;
+            $validated['is_public'] = $contact->is_public;
+            if (array_key_exists('is_mobile_public', $validated)) {
+                $validated['is_mobile_public'] = $contact->is_mobile_public;
+            }
+        }
+
+        // ادغام شماره‌های شخصی کاربر جاری با سایر کاربران در دیتابیس
+        if (isset($validated['personal_mobiles']) && is_array($validated['personal_mobiles'])) {
+            $currentPersonal = $contact->personal_mobiles ?: [];
+            $validated['personal_mobiles'] = array_merge($currentPersonal, $validated['personal_mobiles']);
         }
 
         // ثبت یا به‌روزرسانی فیلد created_by_user_id در ویرایش مخاطب
@@ -553,6 +575,39 @@ class ContactController extends Controller
             'contact_id'  => $contactModel->id,
             'is_favorite' => $newStatus,
             'message'     => $newStatus ? 'به نشان‌شده‌ها اضافه شد.' : 'از نشان‌شده‌ها حذف شد.',
+        ]);
+    }
+
+    /**
+     * ثبت و به‌روزرسانی اختصاصی شماره‌های همراه در دفترچه تلفن شخصی کاربر (Personal Overlay)
+     */
+    public function updatePersonalMobiles(Request $request, $id)
+    {
+        $contact = Contact::findOrFail($id);
+        $user = $this->resolveUser($request);
+
+        if (!$user) {
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'برای ثبت شماره در دفترچه تلفن شخصی، ورود به سیستم الزامی است.',
+            ], 401);
+        }
+
+        $request->validate([
+            'personal_mobiles' => 'required|array',
+        ]);
+
+        $incoming = $request->input('personal_mobiles');
+        $current = $contact->personal_mobiles ?: [];
+        $merged = array_merge($current, $incoming);
+
+        $contact->personal_mobiles = $merged;
+        $contact->save();
+
+        return response()->json([
+            'status'  => 'success',
+            'data'    => $contact,
+            'message' => 'شماره‌های همراه دفترچه شخصی با موفقیت در دیتابیس ثبت گردید.',
         ]);
     }
 }

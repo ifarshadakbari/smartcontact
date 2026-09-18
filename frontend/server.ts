@@ -266,6 +266,7 @@ app.post('/api/contacts', (req, res) => {
     is_favorite: Boolean(data.is_favorite),
     is_public: isPublic,
     is_mobile_public: isMobilePublic,
+    personal_mobiles: data.personal_mobiles && typeof data.personal_mobiles === 'object' ? data.personal_mobiles : {},
     mobiles: Array.isArray(data.mobiles) ? data.mobiles : [],
     landlines: Array.isArray(data.landlines) ? data.landlines : [],
     created_at: new Date().toISOString(),
@@ -299,13 +300,17 @@ app.put('/api/contacts/:id', (req, res) => {
     : (existingCreatorId ?? (req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : 1));
   const creatorName = data.created_by_user_name || contacts[index].created_by_user_name || (isAdmin ? 'مدیر سیستم' : 'کاربر سازمانی');
 
-  // صرفاً کاربر ادمین اجازه تعیین وضعیت عمومی را دارد
+  // حفظ وضعیت مخاطب عمومی در صورت ویرایش توسط کاربر غیر ادمین (مثلاً افزودن شماره دفترچه شخصی)
   const isPublic = isAdmin
     ? (data.is_public !== undefined ? Boolean(data.is_public) : (contacts[index].is_public ?? true))
-    : false;
+    : (contacts[index].is_public ?? false);
   const isMobilePublic = isAdmin && isPublic
     ? (data.is_mobile_public !== undefined ? Boolean(data.is_mobile_public) : (contacts[index].is_mobile_public ?? false))
-    : false;
+    : (contacts[index].is_mobile_public ?? false);
+
+  const mergedPersonalMobiles = data.personal_mobiles !== undefined && typeof data.personal_mobiles === 'object'
+    ? { ...(contacts[index].personal_mobiles || {}), ...data.personal_mobiles }
+    : (contacts[index].personal_mobiles || {});
 
   const updated = {
     ...contacts[index],
@@ -315,10 +320,34 @@ app.put('/api/contacts/:id', (req, res) => {
     created_by_user_name: creatorName,
     is_public: isPublic,
     is_mobile_public: isMobilePublic,
+    personal_mobiles: mergedPersonalMobiles,
     updated_at: new Date().toISOString(),
   };
   contacts[index] = updated;
   res.json(updated);
+});
+
+// ثبت و به‌روزرسانی اختصاصی شماره‌های همراه در دفترچه تلفن شخصی کاربر (Personal Overlay)
+app.post('/api/contacts/:id/personal-mobiles', (req, res) => {
+  const id = Number(req.params.id);
+  const index = contacts.findIndex((c) => c.id === id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'مخاطب یافت نشد.' });
+  }
+
+  const incoming = req.body.personal_mobiles;
+  if (incoming && typeof incoming === 'object') {
+    contacts[index].personal_mobiles = {
+      ...(contacts[index].personal_mobiles || {}),
+      ...incoming,
+    };
+  }
+  contacts[index].updated_at = new Date().toISOString();
+  res.json({
+    status: 'success',
+    data: contacts[index],
+    message: 'شماره‌های دفترچه تلفن شخصی با موفقیت در دیتابیس ثبت شد.',
+  });
 });
 
 app.delete('/api/contacts/:id', (req, res) => {
