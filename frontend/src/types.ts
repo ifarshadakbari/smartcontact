@@ -4,7 +4,8 @@ export interface LandlineEntry {
   id: string;
   phone: string; // خط تلفن ثابت
   extension: string; // داخلی
-  title?: string; // برچسب اختیاری مثل خط ۱ یا دفتر مدیریت
+  title?: string; // برچسب اختیاری مثل خط ۱ یا بی‌سیم یا ریموت
+  is_admin_only?: boolean; // خط محرمانه فقط قابل مشاهده برای مدیران (Admin Only)
 }
 
 export interface Contact {
@@ -14,7 +15,7 @@ export interface Contact {
   first_name: string; // نام (*)
   last_name: string; // نام خانوادگی (*)
   job_title?: string; // سمت
-  department?: string; // واحد سازمانی / دپارتمان
+  department?: string; // واحد سازمانی / دپارتمان (متنی)
   location?: string; // موقعیت (طبقه، اتاق، ساختمان)
   mobiles: string[]; // شماره همراه (** امکان افزودن چند شماره)
   landlines: LandlineEntry[]; // شماره ثابت + داخلی (** امکان افزودن چند شماره)
@@ -24,7 +25,6 @@ export interface Contact {
   is_favorite?: boolean;
   // User Ownership & Visibility
   created_by_user_id: number; // شناسه کاربر ایجادکننده
-  created_by_user_name?: string; // نام کاربر ایجادکننده
   is_public?: boolean; // مخاطب عمومی سازمانی (قابل مشاهده برای همه)
   created_at?: string;
 
@@ -37,8 +37,8 @@ export interface Contact {
   domain_id?: string | number; // شناسه دامین مربوطه (برای داخلی‌های سازمان)
   domain_name?: string; // نام دامین سازمانی
   domain?: string; // فیلد دامین سازمانی سازگار با بک‌اند
-  company_name?: string; // نام شرکت / سازمان طرف قرارداد (برای مخاطبان برون‌سازمانی)
-  has_ldap_account?: boolean; // آیا حساب کاربری AD دارد یا صرفاً دارای تلفن و داخلی رومیزی است (نگهبانی، خدمات، انبار)
+  company_name?: string; // نام شرکت / پیمانکار (برای مخاطبان برون‌سازمانی)
+  has_ldap_account?: boolean; // آیا حساب کاربری AD دارد یا صرفاً دارای تلفن و داخلی رومیزی است
   ldap_username?: string; // نام کاربری در اکتیودایرکتوری
   display_order?: number; // ترتیب نمایش سفارشی ادمین (اولویت چیدمان دستی)
 }
@@ -149,6 +149,7 @@ export type ViewMode = 'card' | 'table';
 export interface FilterOptions {
   search: string;
   department: string;
+  lineTitleSearch?: string; // جستجو در عناوین/برچسب‌های اختیاری خطوط
   favoritesOnly: boolean;
   creatorFilter?: 'all' | 'mine' | 'public' | number; // فیلتر برای ادمین و کاربران
 }

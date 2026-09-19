@@ -478,9 +478,6 @@ export const saveContactToApi = async (
       ? Number(contact.created_by_user_id)
       : (authUser?.id ? Number(authUser.id) : undefined);
 
-  const resolvedCreatedByName =
-    contact.created_by_user_name || authUser?.name || undefined;
-
   const payload: any = {
     first_name: firstNameVal,
     last_name: lastNameVal,
@@ -504,7 +501,6 @@ export const saveContactToApi = async (
     personal_mobiles: contact.personal_mobiles && typeof contact.personal_mobiles === 'object' ? contact.personal_mobiles : {},
     is_favorite: Boolean(contact.is_favorite),
     created_by_user_id: resolvedCreatedById,
-    created_by_user_name: resolvedCreatedByName,
   };
 
   let res: Response;
@@ -602,8 +598,6 @@ export const saveContactToApi = async (
       savedItem.created_by_user_id !== undefined && savedItem.created_by_user_id !== null
         ? Number(savedItem.created_by_user_id)
         : (contact.created_by_user_id || resolvedCreatedById || 1),
-    created_by_user_name:
-      savedItem.created_by_user_name || contact.created_by_user_name || resolvedCreatedByName || 'کاربر سیستم',
     domain: savedItem.domain ? String(savedItem.domain) : (contact.domain ? String(contact.domain) : ''),
     domain_id: savedItem.domain_id !== undefined && savedItem.domain_id !== null && savedItem.domain_id !== ''
       ? String(savedItem.domain_id)

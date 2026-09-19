@@ -193,15 +193,139 @@ export function isPureWirelessTitle(title?: string | null): boolean {
 }
 
 /**
- * Extracts non-wireless descriptive parts from a title (e.g. "انبار - بی‌سیم" -> "انبار")
+ * Detects if a landline entry title refers to a remote line (ریموت / دورکار):
+ * Checks for "ریموت", "remote", "دورکار", "دورکاری", "vpn", etc.
+ */
+export function isRemoteLine(titleOrLandlines?: any): boolean {
+  if (!titleOrLandlines) return false;
+  if (Array.isArray(titleOrLandlines)) {
+    return titleOrLandlines.some((l) => l && isRemoteLine(l.title));
+  }
+  if (typeof titleOrLandlines === 'object' && titleOrLandlines !== null) {
+    return isRemoteLine(titleOrLandlines.title);
+  }
+  if (typeof titleOrLandlines !== 'string') return false;
+  const clean = titleOrLandlines
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  return (
+    clean === 'ریموت' ||
+    clean.includes('ریموت') ||
+    clean === 'remote' ||
+    clean.includes('remote') ||
+    clean === 'دورکار' ||
+    clean.includes('دورکار') ||
+    clean.includes('دورکاری') ||
+    clean === 'vpn'
+  );
+}
+
+/**
+ * Checks if a title is purely indicating that the line is remote (e.g. "ریموت", "remote", "دورکار", "تلفن ریموت")
+ */
+export function isPureRemoteTitle(title?: string | null): boolean {
+  if (!title || typeof title !== 'string') return false;
+  const clean = title
+    .trim()
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+  return (
+    clean === 'ریموت' ||
+    clean === 'تلفنریموت' ||
+    clean === 'خطرremote' ||
+    clean === 'خطریموت' ||
+    clean === 'داخلیرremote' ||
+    clean === 'داخلایریموت' ||
+    clean === 'داخلیرریموت' ||
+    clean === 'remote' ||
+    clean === 'remoteline' ||
+    clean === 'دورکار' ||
+    clean === 'دورکاری'
+  );
+}
+
+/**
+ * Extracts non-wireless & non-remote descriptive parts from a title (e.g. "انبار - بی‌سیم" -> "انبار", "مهندسی - ریموت" -> "مهندسی")
  */
 export function getNonWirelessTitle(title?: string | null): string {
   if (!title || typeof title !== 'string') return '';
-  if (isPureWirelessTitle(title)) return '';
+  if (isPureWirelessTitle(title) || isPureRemoteTitle(title)) return '';
   return title
-    .replace(/(?:تلفن\s*)?(?:بی[\s‌-]*سیم|بیسیم|wireless|dect)/gi, '')
+    .replace(/(?:تلفن\s*)?(?:بی[\s‌-]*سیم|بیسیم|wireless|dect|ریموت|remote|دورکار|دورکاری)/gi, '')
     .replace(/^[\s\-–—:،,]+|[\s\-–—:،,]+$/g, '')
     .trim();
+}
+
+/**
+ * Determines the specific line type for visual badge styling
+ */
+export function getLineBadgeType(title?: string | null): 'wireless' | 'remote' | 'other' {
+  if (isWirelessLine(title)) return 'wireless';
+  if (isRemoteLine(title)) return 'remote';
+  return 'other';
+}
+
+/**
+ * Filters visible landlines for a contact based on Admin/Staff privacy permissions:
+ * Lines marked as is_admin_only are hidden from non-admin users.
+ */
+export function getVisibleLandlines(contact: Contact, currentUser: User | null): any[] {
+  const landlines = Array.isArray(contact.landlines) ? contact.landlines : [];
+  const isAdmin = currentUser?.role === 'admin';
+
+  return landlines.filter((item) => {
+    if (!item) return false;
+    const hasData = Boolean(item.phone?.trim() || item.extension?.trim());
+    if (!hasData) return false;
+
+    // If marked as admin only, hide for regular users and guests
+    if (item.is_admin_only && !isAdmin) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Checks if VoIP click-to-call is enabled and configured on a domain
+ */
+export function isDomainVoipEnabled(domain?: LdapDomain | null): boolean {
+  if (!domain) return true;
+  if (domain.voip_enabled === false) return false;
+  return Boolean(domain.voip_server_host && domain.voip_server_host.trim() !== '');
+}
+
+/**
+ * Checks if a call can be initiated from desktop IP Phone for this contact
+ */
+export function isContactVoipCallable(
+  contact: Contact,
+  domains?: LdapDomain[],
+  currentUser?: User | null
+): { callable: boolean; reason?: string } {
+  if (!currentUser) {
+    return { callable: false, reason: 'جهت برقراری تماس تلفنی لطفاً ابتدا وارد حساب کاربری خود شوید.' };
+  }
+  if (!currentUser.extension || currentUser.extension.trim() === '') {
+    return { callable: false, reason: 'برای حساب کاربری شما شماره داخلی در Active Directory ثبت نشده است.' };
+  }
+
+  // If internal contact, verify domain's VoIP status
+  if (contact.contact_type !== 'external' && domains && domains.length > 0) {
+    const matchedDomain = domains.find(
+      (d) =>
+        (contact.domain_id && String(d.id) === String(contact.domain_id)) ||
+        (contact.domain && (d.name === contact.domain || d.display_name === contact.domain))
+    );
+    if (matchedDomain && !isDomainVoipEnabled(matchedDomain)) {
+      return { callable: false, reason: `سرویس VoIP برای دامین «${matchedDomain.display_name || matchedDomain.name}» غیرفعال است.` };
+    }
+  }
+
+  return { callable: true };
 }
 
 /**
@@ -420,21 +544,36 @@ export function getVisibleMobiles(
   }
 
   // Check personal overlay mobiles for currentUser
-  if (currentUser && contact.personal_mobiles && contact.personal_mobiles[currentUser.id]) {
-    const personalList = contact.personal_mobiles[currentUser.id] || [];
-    personalList.forEach((m) => {
-      if (!m.trim()) return;
-      const norm = normalizePhoneNumber(m);
-      // Avoid duplicate display if already in list
-      if (!list.some((item) => normalizePhoneNumber(item.phone) === norm)) {
-        list.push({
-          phone: m,
-          type: 'personal_overlay',
-          label: 'شماره همراه در دفترچه شخصی شما',
-          isPersonal: true,
-        });
-      }
-    });
+  if (currentUser && contact.personal_mobiles) {
+    let personalMap: Record<string | number, string[]> = {};
+    if (typeof contact.personal_mobiles === 'string') {
+      try {
+        personalMap = JSON.parse(contact.personal_mobiles);
+      } catch {}
+    } else if (typeof contact.personal_mobiles === 'object') {
+      personalMap = contact.personal_mobiles;
+    }
+
+    const currentIdStr = String(currentUser.id);
+    const currentIdNum = Number(currentUser.id);
+    const personalList =
+      (personalMap && (personalMap[currentIdStr] || personalMap[currentIdNum])) || [];
+
+    if (Array.isArray(personalList)) {
+      personalList.forEach((m) => {
+        if (!m || typeof m !== 'string' || !m.trim()) return;
+        const norm = normalizePhoneNumber(m);
+        // Avoid duplicate display if already in list
+        if (!list.some((item) => normalizePhoneNumber(item.phone) === norm)) {
+          list.push({
+            phone: m.trim(),
+            type: 'personal_overlay',
+            label: 'شماره همراه در دفترچه شخصی شما',
+            isPersonal: true,
+          });
+        }
+      });
+    }
   }
 
   return list;

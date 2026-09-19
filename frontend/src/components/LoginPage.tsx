@@ -158,8 +158,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           }
         }
 
+        const cleanUserStr = (data.user.username || username).trim().toLowerCase();
+        const ADMIN_USERNAMES = ['administrator', 'sarrafi', 'admin', 'f.akbari'];
+        const isLdapAdmin = ADMIN_USERNAMES.includes(cleanUserStr) || data.user.role === 'admin';
+
         const enrichedUser: User = {
           ...data.user,
+          role: isLdapAdmin ? 'admin' : (data.user.role || 'staff'),
           domain_id: data.user.domain_id || selectedDomainId,
           domain: data.user.domain || currentDomain?.name || 'parszarasa.local',
           domain_name: data.user.domain_name || currentDomain?.display_name || currentDomain?.name,

@@ -2,9 +2,20 @@ import React, { useState } from 'react';
 import { Copy, Check, Star, ArrowUpRight, Phone, Smartphone, MapPin, UserCheck, Globe, PhoneCall, Network, Building2, Lock, Shield, Radio, GripVertical } from 'lucide-react';
 import { Contact, User, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
-import { getVisibleMobiles, getDomainDisplayName, isWirelessLine, isPureWirelessTitle, getNonWirelessTitle } from '../utils/phoneUtils';
+import {
+  getVisibleMobiles,
+  getDomainDisplayName,
+  isWirelessLine,
+  isPureWirelessTitle,
+  isRemoteLine,
+  isPureRemoteTitle,
+  getNonWirelessTitle,
+  getVisibleLandlines,
+  isContactVoipCallable,
+} from '../utils/phoneUtils';
 import { getContactCreatorLabel } from '../utils/contactUtils';
 import { CordlessPhoneIcon } from './CordlessPhoneIcon';
+import { RemotePhoneIcon } from './RemotePhoneIcon';
 
 interface ContactTableProps {
   contacts: Contact[];
@@ -46,6 +57,10 @@ export const ContactTable: React.FC<ContactTableProps> = ({
     e.stopPropagation();
     if (!currentUser) {
       if (onRequireLoginForCall) onRequireLoginForCall();
+      return;
+    }
+    const check = isContactVoipCallable(contact, ldapDomains, currentUser);
+    if (!check.callable) {
       return;
     }
     if (onInitiateCall) {
@@ -124,6 +139,9 @@ export const ContactTable: React.FC<ContactTableProps> = ({
               const isOwner = currentUser ? contact.created_by_user_id === currentUser.id : false;
               const isDragging = draggedIndex === index;
               const isOver = dragOverIndex === index;
+              const voipCheck = isContactVoipCallable(contact, ldapDomains, currentUser);
+              const canMakeCalls = voipCheck.callable;
+              const visibleLandlines = getVisibleLandlines(contact, currentUser);
 
               return (
                 <tr
@@ -296,121 +314,139 @@ export const ContactTable: React.FC<ContactTableProps> = ({
 
                   {/* Fixed Lines + Extension */}
                   <td className="py-3 px-4">
-                    {contact.landlines && contact.landlines.length > 0 ? (
+                    {visibleLandlines.length > 0 ? (
                       <div className="space-y-1.5">
-                        {contact.landlines.map((l, idx) => (
-                          <div key={l.id || idx} className="flex flex-wrap items-center gap-1.5 text-xs">
-                            {l.phone ? (
-                              <div className="flex items-center gap-1">
-                                <a
-                                  href={`tel:${l.phone}`}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="font-bold text-blue-600 font-mono text-sm tracking-wide hover:underline"
-                                  dir="ltr"
-                                >
-                                  {l.phone}
-                                </a>
+                        {visibleLandlines.map((l, idx) => {
+                          const isWireless = isWirelessLine(l.title);
+                          const isRemote = isRemoteLine(l.title);
+                          const customTitle = getNonWirelessTitle(l.title);
 
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleCallClick(e, l.phone, contact, l.title || 'تلفن ثابت')}
-                                  className={`p-0.5 cursor-pointer ${
-                                    currentUser
-                                      ? 'text-emerald-600 hover:text-emerald-800'
-                                      : 'text-neutral-400 hover:text-neutral-700'
-                                  }`}
-                                  title={
-                                    currentUser
-                                      ? 'تماس مستقیم از تلفن رومیزی شما'
-                                      : 'برای تماس خودکار VoIP، وارد شوید'
-                                  }
-                                >
-                                  <PhoneCall className="w-3.5 h-3.5" />
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleCopy(e, l.phone, `table-phone-${contact.id}-${idx}`)}
-                                  className="text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
-                                  title="کپی تلفن ثابت"
-                                >
-                                  {copiedKey === `table-phone-${contact.id}-${idx}` ? (
-                                    <Check className="w-3 h-3 text-emerald-600" />
-                                  ) : (
-                                    <Copy className="w-3 h-3" />
-                                  )}
-                                </button>
-                              </div>
-                            ) : null}
-
-                            {/* Title / Non-wireless description */}
-                            {(() => {
-                              const isWireless = isWirelessLine(l.title);
-                              const customTitle = getNonWirelessTitle(l.title);
-                              if (customTitle) {
-                                return (
-                                  <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
-                                    {customTitle}
-                                  </span>
-                                );
-                              }
-                              if (isWireless && !l.extension) {
-                                return (
-                                  <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-medium">
-                                    <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
-                                    <span>بی‌سیم</span>
-                                  </span>
-                                );
-                              }
-                              return null;
-                            })()}
-
-                            {l.extension && (
-                              <div className="inline-flex items-center gap-1.5 flex-wrap">
-                                <span
-                                  className={`font-mono text-neutral-800 rounded border ${
-                                    contact.contact_type !== 'external'
-                                      ? 'text-sm font-bold bg-neutral-100 px-2 py-0.5 border-neutral-300 tracking-wide'
-                                      : 'text-[11px] bg-neutral-100 px-1.5 py-0.5 border-neutral-200'
-                                  }`}
-                                  dir="ltr"
-                                >
-                                  داخلی: {l.extension}
-                                </span>
-
-                                {/* برچسب بی‌سیم همراه با آیکون اختصاصی تلفن بی‌سیم دقیقاً کنار شماره داخلی */}
-                                {isWirelessLine(l.title) && (
-                                  <span
-                                    className="inline-flex items-center gap-1 text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200 font-medium whitespace-nowrap"
-                                    title="تلفن داخلی بی‌سیم"
+                          return (
+                            <div key={l.id || idx} className="flex flex-wrap items-center gap-1.5 text-xs">
+                              {l.phone ? (
+                                <div className="flex items-center gap-1">
+                                  <a
+                                    href={`tel:${l.phone}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="font-bold text-blue-600 font-mono text-sm tracking-wide hover:underline"
+                                    dir="ltr"
                                   >
-                                    <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
-                                    <span>بی‌سیم</span>
-                                  </span>
-                                )}
+                                    {l.phone}
+                                  </a>
 
-                                {contact.contact_type !== 'external' && (
+                                  {canMakeCalls ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleCallClick(e, l.phone, contact, l.title || 'تلفن ثابت')}
+                                      className="p-0.5 cursor-pointer text-emerald-600 hover:text-emerald-800"
+                                      title="تماس مستقیم از تلفن رومیزی شما"
+                                    >
+                                      <PhoneCall className="w-3.5 h-3.5" />
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="p-0.5 text-neutral-300 cursor-not-allowed"
+                                      title={voipCheck.reason || 'تماس VoIP غیرفعال است'}
+                                    >
+                                      <PhoneCall className="w-3.5 h-3.5" />
+                                    </span>
+                                  )}
+
                                   <button
                                     type="button"
-                                    onClick={(e) => handleCallClick(e, l.extension!, contact, `داخلی ${l.extension}`)}
-                                    className={`p-0.5 cursor-pointer ${
-                                      currentUser
-                                        ? 'text-emerald-600 hover:text-emerald-800'
-                                        : 'text-neutral-400 hover:text-neutral-700'
-                                    }`}
-                                    title={
-                                      currentUser
-                                        ? 'تماس سریع با داخلی از تلفن رومیزی'
-                                        : 'برای تماس خودکار با داخلی، وارد شوید'
-                                    }
+                                    onClick={(e) => handleCopy(e, l.phone, `table-phone-${contact.id}-${idx}`)}
+                                    className="text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
+                                    title="کپی تلفن ثابت"
                                   >
-                                    <PhoneCall className="w-3 h-3" />
+                                    {copiedKey === `table-phone-${contact.id}-${idx}` ? (
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
                                   </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                                </div>
+                              ) : null}
+
+                              {/* Title / Non-wireless description */}
+                              {customTitle && (
+                                <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
+                                  {customTitle}
+                                </span>
+                              )}
+
+                              {isWireless && !l.extension && (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-medium">
+                                  <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
+                                  <span>بی‌سیم</span>
+                                </span>
+                              )}
+
+                              {isRemote && !l.extension && (
+                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 font-medium">
+                                  <RemotePhoneIcon className="w-3 h-3 text-purple-600 animate-pulse" />
+                                  <span>ریموت</span>
+                                </span>
+                              )}
+
+                              {l.extension && (
+                                <div className="inline-flex items-center gap-1.5 flex-wrap">
+                                  <span
+                                    className={`font-mono text-neutral-800 rounded border ${
+                                      contact.contact_type !== 'external'
+                                        ? 'text-sm font-bold bg-neutral-100 px-2 py-0.5 border-neutral-300 tracking-wide'
+                                        : 'text-[11px] bg-neutral-100 px-1.5 py-0.5 border-neutral-200'
+                                    }`}
+                                    dir="ltr"
+                                  >
+                                    داخلی: {l.extension}
+                                  </span>
+
+                                  {/* برچسب بی‌سیم همراه با آیکون اختصاصی تلفن بی‌سیم */}
+                                  {isWireless && (
+                                    <span
+                                      className="inline-flex items-center gap-1 text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200 font-medium whitespace-nowrap"
+                                      title="تلفن داخلی بی‌سیم"
+                                    >
+                                      <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
+                                      <span>بی‌سیم</span>
+                                    </span>
+                                  )}
+
+                                  {/* برچسب ریموت همراه با آیکون اختصاصی ریموت */}
+                                  {isRemote && (
+                                    <span
+                                      className="inline-flex items-center gap-1 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 font-medium whitespace-nowrap"
+                                      title="تلفن داخلی ریموت / دورکار"
+                                    >
+                                      <RemotePhoneIcon className="w-3 h-3 text-purple-600 animate-pulse" />
+                                      <span>ریموت</span>
+                                    </span>
+                                  )}
+
+                                  {contact.contact_type !== 'external' && (
+                                    canMakeCalls ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleCallClick(e, l.extension!, contact, `داخلی ${l.extension}`)}
+                                        className="p-0.5 cursor-pointer text-emerald-600 hover:text-emerald-800"
+                                        title="تماس سریع با داخلی از تلفن رومیزی"
+                                      >
+                                        <PhoneCall className="w-3 h-3" />
+                                      </button>
+                                    ) : (
+                                      <span
+                                        className="p-0.5 text-neutral-300 cursor-not-allowed"
+                                        title={voipCheck.reason || 'تماس VoIP غیرفعال است'}
+                                      >
+                                        <PhoneCall className="w-3 h-3" />
+                                      </span>
+                                    )
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       '-'
@@ -464,22 +500,16 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                   </span>
                                 )}
 
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleCallClick(e, mobItem.phone, contact, `موبایل ${mobItem.phone}`)}
-                                  className={`p-0.5 cursor-pointer ${
-                                    currentUser
-                                      ? 'text-emerald-600 hover:text-emerald-800'
-                                      : 'text-neutral-400 hover:text-neutral-700'
-                                  }`}
-                                  title={
-                                    currentUser
-                                      ? 'شماره‌گیری این موبایل از تلفن رومیزی'
-                                      : 'برای شماره‌گیری از تلفن رومیزی، وارد شوید'
-                                  }
-                                >
-                                  <PhoneCall className="w-3.5 h-3.5" />
-                                </button>
+                                {canMakeCalls && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCallClick(e, mobItem.phone, contact, `موبایل ${mobItem.phone}`)}
+                                    className="p-0.5 cursor-pointer text-emerald-600 hover:text-emerald-800"
+                                    title="شماره‌گیری این موبایل از تلفن رومیزی"
+                                  >
+                                    <PhoneCall className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
 
                                 <button
                                   type="button"

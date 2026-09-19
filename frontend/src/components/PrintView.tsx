@@ -1,14 +1,18 @@
-import React, { useEffect } from 'react';
-import { Printer, ArrowRight, X } from 'lucide-react';
-import { Contact } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Printer, ArrowRight, X, LayoutGrid, FileText } from 'lucide-react';
+import { Contact, LdapDomain } from '../types';
+import { getDomainDisplayName, isWirelessLine, isRemoteLine, getNonWirelessTitle } from '../utils/phoneUtils';
 
 interface PrintViewProps {
   contacts: Contact[];
+  ldapDomains?: LdapDomain[];
   onBack?: () => void;
   onClose?: () => void;
 }
 
-export const PrintView: React.FC<PrintViewProps> = ({ contacts, onBack, onClose }) => {
+export const PrintView: React.FC<PrintViewProps> = ({ contacts, ldapDomains, onBack, onClose }) => {
+  const [printMode, setPrintMode] = useState<'full' | 'compact'>('full');
+
   const handleClose = () => {
     if (onClose) {
       onClose();
@@ -43,7 +47,7 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, onBack, onClose 
   return (
     <div className="min-h-screen bg-neutral-100 p-4 sm:p-8 font-sans">
       {/* Top Action Bar (Hidden on print) */}
-      <div className="no-print max-w-5xl mx-auto mb-6 sticky top-4 z-20 flex items-center justify-between bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-neutral-200 shadow-md">
+      <div className="no-print max-w-5xl mx-auto mb-6 sticky top-4 z-20 flex flex-wrap items-center justify-between gap-3 bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-neutral-200 shadow-md">
         <button
           id="btn-return-to-site"
           type="button"
@@ -58,9 +62,37 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, onBack, onClose 
           </span>
         </button>
 
+        {/* Print Mode Selector */}
+        <div className="inline-flex items-center bg-neutral-100 p-1 rounded-lg border border-neutral-200">
+          <button
+            type="button"
+            onClick={() => setPrintMode('full')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              printMode === 'full'
+                ? 'bg-white text-neutral-900 shadow-xs'
+                : 'text-neutral-600 hover:text-neutral-900'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5 text-blue-600" />
+            <span>چاپ کامل (جامع)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPrintMode('compact')}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              printMode === 'compact'
+                ? 'bg-white text-neutral-900 shadow-xs'
+                : 'text-neutral-600 hover:text-neutral-900'
+            }`}
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-emerald-600" />
+            <span>چاپ فشرده (خلاصه داخلی‌ها)</span>
+          </button>
+        </div>
+
         <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-500">
-            مجموع مخاطبین قابل چاپ: {contacts.length} نفر
+          <span className="text-xs text-neutral-500 hidden md:inline">
+            مجموع مخاطبین: {contacts.length} نفر
           </span>
           <button
             type="button"
@@ -68,7 +100,7 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, onBack, onClose 
             className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs active:scale-95"
           >
             <Printer className="w-4 h-4" />
-            <span>چاپ برگه دفترچه تلفن (Print / PDF)</span>
+            <span>چاپ برگه (Print / PDF)</span>
           </button>
         </div>
       </div>
@@ -82,12 +114,14 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, onBack, onClose 
               سیستم جامع اطلاعات و ارتباطات سازمانی
             </h1>
             <p className="text-xs text-neutral-600 mt-1">
-              راهنمای هوشمند اطلاعات و ارتباطات درون و برون سازمانی
+              {printMode === 'compact'
+                ? 'راهنمای سریع و فشرده شماره‌های داخلی سازمان'
+                : 'راهنمای جامع اطلاعات و ارتباطات درون و برون سازمانی'}
             </p>
           </div>
           <div className="text-left text-xs text-neutral-500">
             <div>تاریخ چاپ: {new Date().toLocaleDateString('fa-IR')}</div>
-            <div>نسخه رسمی سازمان</div>
+            <div>نسخه رسمی سازمان ({printMode === 'compact' ? 'فشرده' : 'کامل'})</div>
           </div>
         </div>
 
@@ -99,61 +133,106 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, onBack, onClose 
                 {department} ({list.length} نفر)
               </div>
 
-              <table className="w-full text-right border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-neutral-300 text-neutral-600 font-bold">
-                    <th className="py-2 px-2">نام و نام خانوادگی</th>
-                    <th className="py-2 px-2">سمت</th>
-                    <th className="py-2 px-2">موقعیت</th>
-                    <th className="py-2 px-2">خط تلفن ثابت و داخلی</th>
-                    <th className="py-2 px-2">شماره همراه</th>
-                    <th className="py-2 px-2">پست الکترونیک</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-200">
-                  {list.map((c) => {
-                    const prefix = c.prefix_title === 'ms' ? 'خانم' : c.prefix_title === 'location' ? '' : 'آقای';
-                    return (
-                      <tr key={c.id} className="hover:bg-neutral-50">
-                        <td className="py-1.5 px-2 font-bold text-neutral-900">
-                          {prefix && <span className="text-neutral-500 font-normal text-[11px] ml-1">{prefix}</span>}
-                          {c.first_name} {c.last_name}
-                        </td>
-                        <td className="py-1.5 px-2 text-neutral-700">{c.job_title || '-'}</td>
-                        <td className="py-1.5 px-2 text-neutral-700 text-[11px]">{c.location || '-'}</td>
-                        <td className="py-1.5 px-2 font-mono text-neutral-900" dir="ltr">
-                          {c.landlines && c.landlines.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {c.landlines.map((l, i) => (
-                                <div key={i} className="text-xs">
-                                  {l.phone && (
-                                    <span className="font-bold text-neutral-900">
-                                      {l.phone}
-                                    </span>
-                                  )}
-                                  {l.extension && (
-                                    <span className="text-neutral-600 text-[11px] ml-1">
-                                      (داخلی: {l.extension})
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td className="py-1.5 px-2 font-mono text-neutral-900 font-semibold text-xs" dir="ltr">
-                          {c.mobiles && c.mobiles.length > 0 ? c.mobiles.join(' - ') : '-'}
-                        </td>
-                        <td className="py-1.5 px-2 text-neutral-600 text-[11px]" dir="ltr">
-                          {c.email || '-'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              {printMode === 'compact' ? (
+                /* Compact Table Layout */
+                <table className="w-full text-right border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-neutral-300 text-neutral-600 font-bold bg-neutral-50">
+                      <th className="py-2 px-2 w-1/4">دامین / شرکت</th>
+                      <th className="py-2 px-2 w-1/4">نام و نام خانوادگی</th>
+                      <th className="py-2 px-2 w-1/4">سمت</th>
+                      <th className="py-2 px-2 w-1/4 text-center">شماره داخلی / خط</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-200">
+                    {list.map((c) => {
+                      const prefix = c.prefix_title === 'ms' ? 'خانم' : c.prefix_title === 'location' ? '' : 'آقای';
+                      const domainName = c.contact_type === 'external' ? (c.company_name || 'طرف قرارداد') : getDomainDisplayName(c, ldapDomains);
+                      const exts = (c.landlines || [])
+                        .filter((l) => l.extension || l.phone)
+                        .map((l) => {
+                          const tag = isWirelessLine(l.title) ? ' (بی‌سیم)' : isRemoteLine(l.title) ? ' (ریموت)' : '';
+                          return l.extension ? `${l.extension}${tag}` : l.phone;
+                        })
+                        .join(' ، ');
+
+                      return (
+                        <tr key={c.id} className="hover:bg-neutral-50">
+                          <td className="py-1.5 px-2 text-neutral-600 font-medium text-[11px]">{domainName}</td>
+                          <td className="py-1.5 px-2 font-bold text-neutral-900">
+                            {prefix && <span className="text-neutral-500 font-normal text-[11px] ml-1">{prefix}</span>}
+                            {c.first_name} {c.last_name}
+                          </td>
+                          <td className="py-1.5 px-2 text-neutral-700">{c.job_title || '-'}</td>
+                          <td className="py-1.5 px-2 font-mono font-bold text-neutral-900 text-center text-sm" dir="ltr">
+                            {exts || '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                /* Full Table Layout */
+                <table className="w-full text-right border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-neutral-300 text-neutral-600 font-bold bg-neutral-50">
+                      <th className="py-2 px-2">نام و نام خانوادگی</th>
+                      <th className="py-2 px-2">سمت</th>
+                      <th className="py-2 px-2">موقعیت</th>
+                      <th className="py-2 px-2">خط تلفن ثابت و داخلی</th>
+                      <th className="py-2 px-2">شماره همراه</th>
+                      <th className="py-2 px-2">پست الکترونیک</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-200">
+                    {list.map((c) => {
+                      const prefix = c.prefix_title === 'ms' ? 'خانم' : c.prefix_title === 'location' ? '' : 'آقای';
+                      return (
+                        <tr key={c.id} className="hover:bg-neutral-50">
+                          <td className="py-1.5 px-2 font-bold text-neutral-900">
+                            {prefix && <span className="text-neutral-500 font-normal text-[11px] ml-1">{prefix}</span>}
+                            {c.first_name} {c.last_name}
+                          </td>
+                          <td className="py-1.5 px-2 text-neutral-700">{c.job_title || '-'}</td>
+                          <td className="py-1.5 px-2 text-neutral-700 text-[11px]">{c.location || '-'}</td>
+                          <td className="py-1.5 px-2 font-mono text-neutral-900" dir="ltr">
+                            {c.landlines && c.landlines.length > 0 ? (
+                              <div className="space-y-0.5">
+                                {c.landlines.map((l, i) => {
+                                  const tag = isWirelessLine(l.title) ? ' [بی‌سیم]' : isRemoteLine(l.title) ? ' [ریموت]' : '';
+                                  return (
+                                    <div key={i} className="text-xs">
+                                      {l.phone && (
+                                        <span className="font-bold text-neutral-900">
+                                          {l.phone}
+                                        </span>
+                                      )}
+                                      {l.extension && (
+                                        <span className="text-neutral-600 text-[11px] ml-1">
+                                          (داخلی: {l.extension}{tag})
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                          <td className="py-1.5 px-2 font-mono text-neutral-900 font-semibold text-xs" dir="ltr">
+                            {c.mobiles && c.mobiles.length > 0 ? c.mobiles.join(' - ') : '-'}
+                          </td>
+                          <td className="py-1.5 px-2 text-neutral-600 text-[11px]" dir="ltr">
+                            {c.email || '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           ))}
         </div>
@@ -177,9 +256,10 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, onBack, onClose 
           className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-semibold transition cursor-pointer shadow-xs active:scale-95"
         >
           <Printer className="w-4 h-4" />
-          <span>چاپ برگه دفترچه تلفن (Print / PDF)</span>
+          <span>چاپ برگه ({printMode === 'compact' ? 'فشرده' : 'کامل'})</span>
         </button>
       </div>
     </div>
   );
 };
+

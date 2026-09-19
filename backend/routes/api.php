@@ -348,22 +348,27 @@ Route::post('/login/ldap', function (Request $request) {
 
         @ldap_close($ldapConn);
 
-        $adminUsers = env('ADMIN_LDAP_USERS', 'admin,f.akbari,administrator');
+        $adminUsers = env('ADMIN_LDAP_USERS', 'admin,administrator,sarrafi,f.akbari');
         $adminList = array_map('trim', array_map('strtolower', explode(',', $adminUsers)));
         $isAdmin = in_array(strtolower($cleanUsername), $adminList);
+        $resolvedRole = $isAdmin ? 'admin' : 'staff';
 
         // ثبت یا همگام‌سازی در جدول users دیتابیس تا جدول contact_favorites به شناسه واقعی کاربر متصل شود
-        $dbUser = User::firstOrCreate(
-            ['email' => $email],
-            [
+        $dbUser = User::where('email', $email)
+            ->orWhere('username', $cleanUsername)
+            ->first();
+
+        if (!$dbUser) {
+            $dbUser = User::create([
                 'name'     => $displayName,
                 'username' => $cleanUsername,
+                'email'    => $email,
                 'password' => bcrypt(str_random(16)),
-                'role'     => $isAdmin ? 'admin' : 'staff',
-            ]
-        );
-
-        if (empty($dbUser->username) || (empty($dbUser->name) && !empty($displayName))) {
+                'role'     => $resolvedRole,
+            ]);
+        } else {
+            // به‌روزرسانی نقش و مشخصات کاربر لاگین‌شده بر اساس لیست ADMIN_LDAP_USERS
+            $dbUser->role = $resolvedRole;
             $dbUser->username = $cleanUsername;
             if (!empty($displayName)) {
                 $dbUser->name = $displayName;

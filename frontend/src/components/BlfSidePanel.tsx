@@ -57,6 +57,7 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
   }, [currentUser, ldapDomains]);
 
   // Counter metrics
+  const canMakeCalls = Boolean(currentUser && currentUser.extension && currentUser.extension.trim() !== '');
   const idleCount = useMemo(() => extensionsData.filter((e) => e.state === 'idle').length, [extensionsData]);
   const busyCount = useMemo(() => extensionsData.filter((e) => e.state === 'busy').length, [extensionsData]);
   const offlineCount = useMemo(() => extensionsData.filter((e) => e.state === 'offline').length, [extensionsData]);
@@ -374,7 +375,7 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
 
                   {/* Quick Action Button */}
                   <div className="shrink-0">
-                    {isIdle && (
+                    {isIdle && canMakeCalls && (
                       <button
                         type="button"
                         onClick={(e) => {

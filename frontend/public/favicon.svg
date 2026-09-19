@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="favGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0369a1" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.15" />
+    </filter>
+  </defs>
+  <!-- Background Rounded Shield / Tile -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#favGrad)" filter="url(#shadow)" />
+  
+  <!-- Subtle Inner Border -->
+  <rect x="5.5" y="5.5" width="53" height="53" rx="12.5" stroke="#ffffff" stroke-opacity="0.25" stroke-width="1.5" />
+  
+  <!-- Phone Handset / Directory Symbol -->
+  <path d="M42.8 35.8c-1.6-1.6-4.1-1.6-5.7 0l-2.2 2.2c-4.9-2.6-8.9-6.6-11.5-11.5l2.2-2.2c1.6-1.6 1.6-4.1 0-5.7l-4.5-4.5c-1.6-1.6-4.1-1.6-5.7 0l-2.8 2.8c-1.8 1.8-2.5 4.5-1.7 6.9 3.2 9.6 10.7 17.1 20.3 20.3 2.4 0.8 5.1 0.1 6.9-1.7l2.8-2.8c1.6-1.6 1.6-4.1 0-5.7l-4.5-4.5z" fill="#ffffff" />
+  
+  <!-- Signal / Network Waves -->
+  <circle cx="43" cy="21" r="3.5" fill="#38bdf8" />
+  <path d="M41 13c3.5 0.8 6.2 3.5 7 7" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" />
+  <path d="M43 8c6 1 10.5 5.5 11.5 11.5" stroke="#bae6fd" stroke-width="2.5" stroke-linecap="round" />
+</svg>

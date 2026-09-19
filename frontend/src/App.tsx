@@ -381,6 +381,10 @@ export default function App() {
       showToast('جهت برقراری تماس مستقیم (Click to Call) با داخلی‌ها، ابتدا با اکانت سازمانی وارد شوید.');
       return;
     }
+    if (!currentUser.extension || currentUser.extension.trim() === '') {
+      showToast('شماره داخلی تلفن سازمانی شما در سامانه ثبت نشده است و امکان برقراری تماس وجود ندارد.');
+      return;
+    }
     if (apiUsageStatus.isRateLimited) {
       showToast(`محدودیت موقت سهمیه API: جهت پیشگیری از خطای سرور، لطفاً ${apiUsageStatus.resetTimeRemainingSec} ثانیه شکیبا باشید.`);
       return;
@@ -600,10 +604,6 @@ export default function App() {
           ? contactToSave.created_by_user_id
           : (currentUser?.id || 1));
 
-    const resolvedCreatorName = existing
-      ? (existing.created_by_user_name || 'کاربر سیستم')
-      : (contactToSave.created_by_user_name || currentUser?.username || currentUser?.name || 'کاربر سیستم');
-
     const mergedPersonalMobiles = {
       ...(existing?.personal_mobiles || {}),
       ...(contactToSave.personal_mobiles || {}),
@@ -612,7 +612,6 @@ export default function App() {
     let finalContact: Contact = {
       ...contactToSave,
       created_by_user_id: resolvedCreatorId,
-      created_by_user_name: resolvedCreatorName,
       is_public: resolvedIsPublic,
       is_mobile_public: resolvedIsMobilePublic,
       personal_mobiles: mergedPersonalMobiles,
@@ -625,7 +624,6 @@ export default function App() {
         ...finalContact,
         ...apiResult,
         created_by_user_id: apiResult.created_by_user_id || finalContact.created_by_user_id || resolvedCreatorId,
-        created_by_user_name: apiResult.created_by_user_name || finalContact.created_by_user_name || resolvedCreatorName,
         // اطمینان از حفظ مقادیر دامین انتخاب‌شده توسط کاربر در فرم
         domain: contactToSave.domain || apiResult.domain,
         domain_id: contactToSave.domain_id || apiResult.domain_id,
@@ -637,7 +635,6 @@ export default function App() {
       finalContact = {
         ...contactToSave,
         created_by_user_id: resolvedCreatorId,
-        created_by_user_name: resolvedCreatorName,
       };
       showToast('اطلاعات به‌صورت محلی ثبت شد (عدم پاسخ سرور)');
     }
@@ -1019,6 +1016,7 @@ export default function App() {
     return (
       <PrintView
         contacts={filteredContacts}
+        ldapDomains={ldapDomains}
         onBack={() => setIsPrintViewOpen(false)}
         onClose={() => setIsPrintViewOpen(false)}
       />

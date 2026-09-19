@@ -278,6 +278,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
   if (!isOpen) return null;
 
+  const canMakeCalls = Boolean(currentUser && currentUser.extension && currentUser.extension.trim() !== '');
+
   const handleCallClick = (targetNumber: string, title?: string) => {
     if (!currentUser) {
       if (onRequireLoginForCall) onRequireLoginForCall();
@@ -573,11 +575,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
         domain_id: contactType === 'internal' ? resolvedDomainId : undefined,
         domain_name: contactType === 'internal' ? resolvedDomainName : undefined,
         company_name: contactType === 'external' ? String(companyName || '').trim() : undefined,
-        has_ldap_account:
-          contactType === 'internal'
-            ? (isAdmin ? hasLdapAccount : (isCreateMode ? false : (contact?.has_ldap_account ?? false)))
-            : false,
-        ldap_username: contactType === 'internal' && hasLdapAccount ? (String(ldapUsername || '').trim() || undefined) : undefined,
+        has_ldap_account: contactType === 'internal',
+        ldap_username: contactType === 'internal' ? (contact?.ldap_username || undefined) : undefined,
         personnel_code: contactType === 'internal' ? cleanPersonnelCode : (cleanPersonnelCode || undefined),
         prefix_title: prefixTitle,
         first_name: rawFirstName,
@@ -860,32 +859,6 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                             ))}
                           </select>
                         </div>
-
-                        {isAdmin ? (
-                          <div className="bg-white p-2.5 rounded-lg border border-neutral-200 space-y-2">
-                            <label className="flex items-center gap-2 cursor-pointer text-xs text-neutral-800">
-                              <input
-                                type="checkbox"
-                                checked={hasLdapAccount}
-                                onChange={(e) => setHasLdapAccount(e.target.checked)}
-                                className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
-                              />
-                              <span className="font-bold">دارای حساب کاربری در Active Directory / LDAP</span>
-                            </label>
-                            <p className="text-[10px] text-neutral-500 leading-normal">
-                              {hasLdapAccount
-                                ? 'کاربر می‌تواند با نام کاربری دامین لاگین کند و شماره‌های شخصی خود را مدیریت یا با دیگران تماس بگیرد.'
-                                : 'شماره و مشخصات این فرد بدون داشتن حساب کاربری در دیتابیس ثبت شده و داخلی آن قابل تماس برای دیگران خواهد بود.'}
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="bg-neutral-100/80 p-2.5 rounded-lg border border-neutral-200 text-[11px] text-neutral-600 flex items-center gap-2">
-                            <Lock className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                            <span>
-                              ثبت در فهرست اطلاعات تماس درون‌سازمانی (تعیین و اتصال حساب کاربری Active Directory منحصراً در اختیارات مدیر سیستم است).
-                            </span>
-                          </div>
-                        )}
                       </div>
                     ) : (
                       <div className="space-y-2.5 pt-1 border-t border-neutral-200/60">
@@ -1647,24 +1620,24 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
                         {/* Action Buttons: Extension Call, Landline Call, Copy */}
                         <div className="flex items-center gap-2 self-start lg:self-auto shrink-0 flex-wrap pt-2.5 lg:pt-0 border-t lg:border-t-0 border-neutral-200/60 w-full lg:w-auto justify-end">
-                          {l.extension && contact && contact.contact_type !== 'external' && (
+                          {l.extension && contact && contact.contact_type !== 'external' && canMakeCalls && (
                             <button
                               type="button"
                               onClick={() => handleCallClick(l.extension, `داخلی ${l.extension}`)}
                               className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-xs font-semibold text-emerald-700 hover:text-emerald-900 transition cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
-                              title={currentUser ? "تماس مستقیم با این شماره داخلی از تلفن رومیزی شما" : "برای برقراری تماس لطفاً وارد شوید"}
+                              title="تماس مستقیم با این شماره داخلی از تلفن رومیزی شما"
                             >
                               <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
                               <span>تماس با داخلی {l.extension}</span>
                             </button>
                           )}
 
-                          {l.phone && contact && (
+                          {l.phone && contact && canMakeCalls && (
                             <button
                               type="button"
                               onClick={() => handleCallClick(l.phone, l.title || 'تلفن ثابت')}
                               className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-semibold text-blue-700 hover:text-blue-900 transition cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
-                              title={currentUser ? "شماره‌گیری از تلفن رومیزی شما (VoIP)" : "برای تماس با VoIP سازمانی وارد شوید"}
+                              title="شماره‌گیری از تلفن رومیزی شما (VoIP)"
                             >
                               <Phone className="w-3.5 h-3.5 text-blue-600" />
                               <span>تماس با خط ثابت</span>
@@ -1867,12 +1840,12 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                             </div>
 
                             <div className="flex items-center gap-2 font-sans self-start sm:self-auto shrink-0 flex-wrap">
-                              {contact && (
+                              {contact && canMakeCalls && (
                                 <button
                                   type="button"
                                   onClick={() => handleCallClick(mobItem.phone, mobItem.isPersonal ? 'همراه دفترچه شخصی' : 'شماره همراه')}
                                   className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-700 hover:text-emerald-900 cursor-pointer text-xs font-semibold flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
-                                  title={currentUser ? "تماس از تلفن رومیزی با شماره همراه" : "برای برقراری تماس با VoIP وارد شوید"}
+                                  title="تماس از تلفن رومیزی با شماره همراه"
                                 >
                                   <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
                                   <span>تماس با همراه</span>
