@@ -435,10 +435,15 @@ class ContactController extends Controller
             }
         }
 
-        // ادغام شماره‌های شخصی کاربر جاری با سایر کاربران در دیتابیس
+        // ادغام شماره‌های شخصی کاربر جاری با سایر کاربران در دیتابیس بدون تبدیل کلیدهای عددی شناسه کاربر
         if (isset($validated['personal_mobiles']) && is_array($validated['personal_mobiles'])) {
-            $currentPersonal = $contact->personal_mobiles ?: [];
-            $validated['personal_mobiles'] = array_merge($currentPersonal, $validated['personal_mobiles']);
+            $currentPersonal = is_array($contact->personal_mobiles) ? $contact->personal_mobiles : [];
+            foreach ($validated['personal_mobiles'] as $uKey => $nums) {
+                if (is_array($nums)) {
+                    $currentPersonal[(string)$uKey] = array_values(array_unique(array_filter($nums)));
+                }
+            }
+            $validated['personal_mobiles'] = $currentPersonal;
         }
 
         // ثبت یا به‌روزرسانی فیلد created_by_user_id در ویرایش مخاطب
@@ -598,10 +603,24 @@ class ContactController extends Controller
         ]);
 
         $incoming = $request->input('personal_mobiles');
-        $current = $contact->personal_mobiles ?: [];
-        $merged = array_merge($current, $incoming);
+        $current = is_array($contact->personal_mobiles) ? $contact->personal_mobiles : [];
+        $userIdKey = (string)$user->id;
 
-        $contact->personal_mobiles = $merged;
+        if (is_array($incoming)) {
+            if (isset($incoming[$userIdKey]) && is_array($incoming[$userIdKey])) {
+                $current[$userIdKey] = array_values(array_unique(array_filter($incoming[$userIdKey])));
+            } elseif (isset($incoming[0]) && is_string($incoming[0])) {
+                $current[$userIdKey] = array_values(array_unique(array_filter($incoming)));
+            } else {
+                foreach ($incoming as $k => $v) {
+                    if (is_array($v)) {
+                        $current[(string)$k] = array_values(array_unique(array_filter($v)));
+                    }
+                }
+            }
+        }
+
+        $contact->personal_mobiles = $current;
         $contact->save();
 
         return response()->json([

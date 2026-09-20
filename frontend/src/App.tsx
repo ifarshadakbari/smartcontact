@@ -430,6 +430,11 @@ export default function App() {
     sessionStorage.removeItem('enterprise_phonebook_auth_token');
     activeUserDomainSetRef.current = null;
     setSelectedCategory('all');
+    setSelectedDepartment('all');
+    setSearchQuery('');
+    setFavoritesOnly(false);
+    setScopeFilter('all');
+    setSelectedContact(null);
   };
 
   // Save Laravel Config
@@ -489,7 +494,12 @@ export default function App() {
     saveStoredDepartments(clean);
 
     saveDepartmentsToApi(clean, laravelConfig)
-      .then(() => {
+      .then((serverDepartments) => {
+        if (Array.isArray(serverDepartments) && serverDepartments.length > 0) {
+          const freshClean = deduplicateDepartments(serverDepartments);
+          setDepartments(freshClean);
+          saveStoredDepartments(freshClean);
+        }
         showToast('واحدهای سازمانی با موفقیت در دیتابیس سرور همگام‌سازی شدند.');
       })
       .catch((err) => {
@@ -865,7 +875,13 @@ export default function App() {
         const domName = normalizeSearchText(contact.domain_name || contact.domain || '');
         const compName = normalizeSearchText(contact.company_name || '');
 
-        const allText = `${fullName} ${role} ${dept} ${loc} ${emailStr} ${pCode} ${domName} ${compName}`;
+        const landlineTitles = normalizeSearchText(
+          (contact.landlines || [])
+            .map((l) => `${l.title || ''} ${l.type === 'cordless' ? 'بی سیم بیسیم' : ''} ${l.type === 'remote' ? 'ریموت دورکاری' : ''}`)
+            .join(' ')
+        );
+
+        const allText = `${fullName} ${role} ${dept} ${loc} ${emailStr} ${pCode} ${domName} ${compName} ${landlineTitles}`;
 
         const phonesRaw = [
           ...(contact.landlines?.map((l) => `${l.phone} ${l.extension}`) || []),
@@ -1375,19 +1391,6 @@ export default function App() {
                 </button>
               );
             })}
-
-            {/* Quick Admin Domain Manager Trigger */}
-            {currentUser?.role === 'admin' && (
-              <button
-                type="button"
-                onClick={() => setIsLdapModalOpen(true)}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap text-blue-600 hover:text-blue-800 hover:bg-blue-50 border border-dashed border-blue-300 transition cursor-pointer inline-flex items-center gap-1 mr-auto"
-                title="مدیریت دامین‌های سازمانی LDAP"
-              >
-                <Plus className="w-3 h-3" />
-                <span>مدیریت دامین‌ها</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -1404,7 +1407,7 @@ export default function App() {
                     {selectedCategory.replace('comp:', '')}
                   </h3>
                   <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-bold">
-                    شرکت طرف قرارداد
+                    شرکت / پیمانکار
                   </span>
                 </div>
                 <p className="text-xs text-amber-800 mt-0.5">
@@ -1450,7 +1453,7 @@ export default function App() {
               ) : currentUser ? (
                 <span> (دسترسی پرسنل: شماره‌های عمومی سازمان + شماره‌های ثبت‌شده توسط شما)</span>
               ) : (
-                <span> (حالت مهمان: شماره‌های عمومی ۳ دامین و شرکت‌های طرف قرارداد)</span>
+                <span> (حالت مهمان: شماره‌های عمومی ۳ دامین و شرکت‌های همکار)</span>
               )}
               {selectedCategory !== 'all' && (
                 <span className="text-neutral-700 font-medium">
@@ -1555,7 +1558,7 @@ export default function App() {
               {contacts.length === 0
                 ? 'اتصال به وب‌سرویس برقرار است اما هنوز مخاطبی در پایگاه داده درج نشده است. می‌توانید با دکمه زیر اولین مخاطب را ثبت کنید.'
                 : !currentUser
-                ? 'در حالت مهمان، فقط شماره‌های عمومی ۳ دامین و شرکت‌های طرف قرارداد نمایش داده می‌شوند. برای دسترسی کامل یا افزودن شماره وارد شوید.'
+                ? 'در حالت مهمان، فقط شماره‌های عمومی ۳ دامین و شرکت‌های همکار نمایش داده می‌شوند. برای دسترسی کامل یا افزودن شماره وارد شوید.'
                 : currentUser.role !== 'admin'
                 ? 'توجه: شماره‌های ثبت‌شده توسط سایر همکاران برای شما غیرقابل مشاهده است. می‌توانید شماره‌های جدیدی اضافه نمایید.'
                 : 'لطفاً عبارت جستجو یا فیلترهای بالا را بازنشانی فرمایید.'}
@@ -1724,14 +1727,6 @@ export default function App() {
                 >
                   <Building2 className="w-3.5 h-3.5 text-blue-600" />
                   <span>مدیریت واحدهای سازمانی</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsLdapModalOpen(true)}
-                  className="text-neutral-600 hover:text-blue-600 transition cursor-pointer flex items-center gap-1 font-medium"
-                >
-                  <Network className="w-3.5 h-3.5 text-blue-600" />
-                  <span>مدیریت دامین‌های LDAP</span>
                 </button>
                 <button
                   type="button"

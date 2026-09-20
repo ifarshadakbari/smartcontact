@@ -319,6 +319,44 @@ export const testLaravelPing = async (config: LaravelConfig): Promise<{ success:
 };
 
 /**
+ * Helper to normalize personal_mobiles structure: Record<string, string[]>
+ */
+export const normalizePersonalMobilesMap = (raw: any, fallbackUserId?: number | string): Record<string, string[]> => {
+  if (!raw) return {};
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return {};
+
+  const result: Record<string, string[]> = {};
+
+  if (Array.isArray(parsed)) {
+    const flatStrings = parsed.flat(2).filter((x) => typeof x === 'string' && x.trim().length > 0);
+    if (flatStrings.length > 0 && fallbackUserId) {
+      result[String(fallbackUserId)] = Array.from(new Set(flatStrings));
+    }
+    return result;
+  }
+
+  for (const [k, v] of Object.entries(parsed)) {
+    if (Array.isArray(v)) {
+      const cleanList = v.filter((x) => typeof x === 'string' && x.trim().length > 0);
+      if (cleanList.length > 0) {
+        result[String(k)] = Array.from(new Set(cleanList));
+      }
+    } else if (typeof v === 'string' && v.trim().length > 0) {
+      result[String(k)] = [v.trim()];
+    }
+  }
+  return result;
+};
+
+/**
  * Fetch contacts from Laravel Live API
  */
 export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Contact[]> => {
@@ -381,7 +419,7 @@ export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Conta
       created_by_user_name: item.created_by_user_name || undefined,
       is_public: item.is_public !== undefined ? Boolean(item.is_public) : true,
       is_mobile_public: item.is_mobile_public !== undefined ? Boolean(item.is_mobile_public) : false,
-      personal_mobiles: item.personal_mobiles && typeof item.personal_mobiles === 'object' ? item.personal_mobiles : {},
+      personal_mobiles: normalizePersonalMobilesMap(item.personal_mobiles, item.created_by_user_id),
       display_order: typeof item.display_order === 'number' ? item.display_order : undefined,
       created_at: item.created_at,
       updated_at: item.updated_at,
@@ -498,7 +536,7 @@ export const saveContactToApi = async (
     company_name: contact.contact_type === 'external' ? (contact.company_name || null) : null,
     is_public: contact.is_public !== undefined ? Boolean(contact.is_public) : true,
     is_mobile_public: contact.is_mobile_public !== undefined ? Boolean(contact.is_mobile_public) : false,
-    personal_mobiles: contact.personal_mobiles && typeof contact.personal_mobiles === 'object' ? contact.personal_mobiles : {},
+    personal_mobiles: normalizePersonalMobilesMap(contact.personal_mobiles, resolvedCreatedById),
     is_favorite: Boolean(contact.is_favorite),
     created_by_user_id: resolvedCreatedById,
   };
@@ -857,7 +895,7 @@ export const fetchDepartmentsFromApi = async (config: LaravelConfig): Promise<De
 /**
  * Save or sync entire Departments list to Laravel Live API / Database
  */
-export const saveDepartmentsToApi = async (departments: Department[], config: LaravelConfig): Promise<void> => {
+export const saveDepartmentsToApi = async (departments: Department[], config: LaravelConfig): Promise<Department[]> => {
   const baseUrl = config.baseUrl.replace(/\/$/, '');
   const targetUrl = `${baseUrl}${config.apiPrefix}/departments/sync`;
   const headers: Record<string, string> = {
@@ -881,6 +919,23 @@ export const saveDepartmentsToApi = async (departments: Department[], config: La
     const errText = await res.text();
     throw new Error(`خطای ذخیره واحدها در دیتابیس (${res.status}): ${errText}`);
   }
+
+  const json = await res.json();
+  const rawList = Array.isArray(json) ? json : (json.data || []);
+  const parsedList: Department[] = rawList.map((item: any) => ({
+    id: String(item.id),
+    name: item.name || '',
+    code: item.code || '',
+    domain_id: item.domain_id !== undefined && item.domain_id !== null ? String(item.domain_id) : undefined,
+    domain_name: item.domain_name || (item.domain ? (item.domain.display_name || item.domain.name) : undefined),
+    sort_order: typeof item.sort_order === 'number' ? item.sort_order : undefined,
+  }));
+
+  const hasAll = parsedList.some((d) => d.id === 'all');
+  if (!hasAll && parsedList.length > 0) {
+    return [{ id: 'all', name: 'تمام واحدها', code: 'ALL' }, ...parsedList];
+  }
+  return parsedList;
 };
 
 /**

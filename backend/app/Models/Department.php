@@ -16,6 +16,18 @@ class Department extends Model
         'sort_order',
     ];
 
+    protected $appends = [
+        'domain_name',
+    ];
+
+    public function getDomainNameAttribute()
+    {
+        if ($this->domain) {
+            return $this->domain->display_name ?: $this->domain->name;
+        }
+        return null;
+    }
+
     /**
      * ارتباط با دامین LDAP (اختیاری)
      */

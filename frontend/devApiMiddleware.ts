@@ -379,10 +379,13 @@ export function createApiMiddleware() {
 
     const incoming = req.body.personal_mobiles;
     if (incoming && typeof incoming === 'object') {
-      contacts[index].personal_mobiles = {
-        ...(contacts[index].personal_mobiles || {}),
-        ...incoming,
-      };
+      const current = { ...(contacts[index].personal_mobiles || {}) };
+      for (const [k, v] of Object.entries(incoming)) {
+        if (Array.isArray(v)) {
+          current[String(k)] = Array.from(new Set(v.filter((x: any) => typeof x === 'string' && x.trim().length > 0)));
+        }
+      }
+      contacts[index].personal_mobiles = current;
     }
     contacts[index].updated_at = new Date().toISOString();
     res.json({
@@ -446,18 +449,33 @@ export function createApiMiddleware() {
 
   // Departments
   router.get('/departments', (req, res) => {
-    res.json(departments);
+    const enriched = departments.map((dept) => {
+      if (dept.id === 'all') return dept;
+      const matchedDomain = ldapDomains.find(
+        (d) => String(d.id) === String(dept.domain_id) || d.name === dept.domain_id
+      );
+      return {
+        ...dept,
+        domain_name: dept.domain_name || matchedDomain?.display_name || matchedDomain?.name,
+      };
+    });
+    res.json(enriched);
   });
 
   router.post('/departments', (req, res) => {
-    const { name, code, sort_order } = req.body;
+    const { name, code, domain_id, sort_order } = req.body;
     if (!name) {
       return res.status(422).json({ message: 'نام واحد الزامی است.' });
     }
+    const matchedDomain = ldapDomains.find(
+      (d) => String(d.id) === String(domain_id) || d.name === domain_id
+    );
     const newDept = {
       id: String(nextDepartmentId++),
       name,
       code: code || '',
+      domain_id: domain_id ? String(domain_id) : undefined,
+      domain_name: matchedDomain?.display_name || matchedDomain?.name,
       sort_order: sort_order || departments.length,
     };
     departments.push(newDept);
@@ -470,7 +488,16 @@ export function createApiMiddleware() {
     if (index === -1) {
       return res.status(404).json({ message: 'واحد سازمانی یافت نشد.' });
     }
-    departments[index] = { ...departments[index], ...req.body, id };
+    const domain_id = req.body.domain_id;
+    const matchedDomain = ldapDomains.find(
+      (d) => String(d.id) === String(domain_id) || d.name === domain_id
+    );
+    departments[index] = {
+      ...departments[index],
+      ...req.body,
+      id,
+      domain_name: matchedDomain?.display_name || matchedDomain?.name || req.body.domain_name,
+    };
     res.json(departments[index]);
   });
 
@@ -483,10 +510,27 @@ export function createApiMiddleware() {
   router.post('/departments/sync', (req, res) => {
     const incoming = req.body.departments;
     if (Array.isArray(incoming)) {
-      const hasAll = incoming.some((d) => d.id === 'all');
+      const enrichedIncoming = incoming.map((item: any, idx: number) => {
+        let validId = item.id;
+        if (!validId || String(validId).startsWith('dept-')) {
+          validId = String(nextDepartmentId++);
+        }
+        const matchedDomain = ldapDomains.find(
+          (d) => String(d.id) === String(item.domain_id) || d.name === item.domain_id
+        );
+        return {
+          ...item,
+          id: String(validId),
+          sort_order: typeof item.sort_order === 'number' ? item.sort_order : idx + 1,
+          domain_id: item.domain_id ? String(item.domain_id) : undefined,
+          domain_name: item.domain_name || matchedDomain?.display_name || matchedDomain?.name,
+        };
+      });
+
+      const hasAll = enrichedIncoming.some((d: any) => d.id === 'all');
       departments = hasAll
-        ? incoming
-        : [{ id: 'all', name: 'تمام واحدها', code: 'ALL', sort_order: 0 }, ...incoming];
+        ? enrichedIncoming
+        : [{ id: 'all', name: 'تمام واحدها', code: 'ALL', sort_order: 0 }, ...enrichedIncoming];
     }
     res.json({ message: 'واحدهای سازمانی با موفقیت همگام‌سازی شدند.', data: departments });
   });

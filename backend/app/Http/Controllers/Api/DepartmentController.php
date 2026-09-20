@@ -14,7 +14,7 @@ class DepartmentController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Department::query();
+        $query = Department::query()->with('domain');
 
         if ($request->filled('domain_id')) {
             $query->where(function ($q) use ($request) {
@@ -91,17 +91,42 @@ class DepartmentController extends Controller
 
         $items = $request->input('departments', []);
         $saved = [];
+        $savedIds = [];
 
         foreach ($items as $index => $item) {
-            $dept = Department::updateOrCreate(
-                ['name' => $item['name']],
-                [
+            $dept = null;
+            if (!empty($item['id']) && is_numeric($item['id'])) {
+                $dept = Department::find($item['id']);
+            }
+            if (!$dept) {
+                $dept = Department::where('name', $item['name'])->first();
+            }
+
+            $domainId = !empty($item['domain_id']) && is_numeric($item['domain_id']) ? (int)$item['domain_id'] : null;
+
+            if ($dept) {
+                $dept->update([
+                    'name'       => $item['name'],
                     'code'       => $item['code'] ?? null,
-                    'domain_id'  => $item['domain_id'] ?? null,
+                    'domain_id'  => $domainId,
                     'sort_order' => $index,
-                ]
-            );
+                ]);
+            } else {
+                $dept = Department::create([
+                    'name'       => $item['name'],
+                    'code'       => $item['code'] ?? null,
+                    'domain_id'  => $domainId,
+                    'sort_order' => $index,
+                ]);
+            }
+            $dept->load('domain');
+            $savedIds[] = $dept->id;
             $saved[] = $dept;
+        }
+
+        // حذف واحدهایی که توسط ادمین در فرم حذف شده‌اند
+        if (!empty($savedIds)) {
+            Department::whereNotIn('id', $savedIds)->delete();
         }
 
         return response()->json([

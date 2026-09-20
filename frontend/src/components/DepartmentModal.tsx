@@ -75,7 +75,7 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
     setIsAdding(false);
     setNameInput(dept.name);
     setCodeInput(dept.code);
-    setSelectedDomainId(dept.domain_id || '');
+    setSelectedDomainId(dept.domain_id ? String(dept.domain_id) : '');
     setErrorMsg(null);
   };
 
@@ -106,7 +106,9 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
       return;
     }
 
-    const matchedDomain = ldapDomains.find((d) => d.id === selectedDomainId);
+    const matchedDomain = ldapDomains.find(
+      (d) => String(d.id) === String(selectedDomainId) || d.name === selectedDomainId
+    );
 
     let updatedList: Department[];
     if (isAdding) {
@@ -114,8 +116,8 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
         id: `dept-${Date.now()}`,
         name: trimmedName,
         code: trimmedCode || `D${realDepartments.length + 1}`,
-        domain_id: selectedDomainId || undefined,
-        domain_name: matchedDomain?.display_name || undefined,
+        domain_id: selectedDomainId ? String(selectedDomainId) : undefined,
+        domain_name: matchedDomain?.display_name || matchedDomain?.name || undefined,
       };
       // Keep 'all' item at index 0 if it exists
       const allItem = departments.find((d) => d.id === 'all') || { id: 'all', name: 'تمام واحدها', code: 'ALL' };
@@ -129,8 +131,8 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
               ...d,
               name: trimmedName,
               code: trimmedCode || d.code,
-              domain_id: selectedDomainId || undefined,
-              domain_name: matchedDomain?.display_name || undefined,
+              domain_id: selectedDomainId ? String(selectedDomainId) : undefined,
+              domain_name: matchedDomain?.display_name || matchedDomain?.name || undefined,
             }
           : d
       );
@@ -336,6 +338,13 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
             ) : (
               filteredList.map((dept) => {
                 const count = getContactCount(dept.name);
+                const resolvedDomain = ldapDomains.find(
+                  (d) =>
+                    (dept.domain_id && (String(d.id) === String(dept.domain_id) || d.name === dept.domain_id)) ||
+                    (dept.domain_name && (d.display_name === dept.domain_name || d.name === dept.domain_name))
+                );
+                const displayDomainName = resolvedDomain?.display_name || dept.domain_name;
+
                 return (
                   <div
                     key={dept.id}
@@ -348,10 +357,14 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-neutral-900">{dept.name}</span>
-                          {dept.domain_name && (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] bg-blue-50 text-blue-700 border border-blue-200">
-                              <Network className="w-2.5 h-2.5" />
-                              <span>{dept.domain_name}</span>
+                          {displayDomainName ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                              <Network className="w-3 h-3 text-blue-600" />
+                              <span>دامین: {displayDomainName}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-neutral-100 text-neutral-500 border border-neutral-200">
+                              <span>سراسری (همه دامین‌ها)</span>
                             </span>
                           )}
                         </div>

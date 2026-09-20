@@ -10,29 +10,36 @@ export function getContactCreatorLabel(
 ): string {
   if (!contact) return '';
 
-  // ۱. اولویت اول: استفاده از نام کاربری واقعی ثبت‌کننده دریافت شده از بک‌اند
-  if (contact.created_by_user_name && contact.created_by_user_name.trim() !== '') {
-    return contact.created_by_user_name.trim();
-  }
-
-  // شناسایی آبجکت کاربر جاری در صورت ارسال
   const user: User | null =
     currentUser ||
     (currentUserOrContacts && typeof currentUserOrContacts === 'object' && 'role' in currentUserOrContacts
       ? (currentUserOrContacts as User)
       : null);
 
-  // ۲. اولویت دوم: اگر کاربر لاگین‌شده همان فرد ایجادکننده باشد
+  // ۱. اگر کاربر جاری همان ثبت‌کننده باشد
   if (user && contact.created_by_user_id && String(user.id) === String(contact.created_by_user_id)) {
-    return user.username || user.name || 'شما';
+    return 'شما';
   }
 
-  // ۳. اولویت سوم: نمایش شناسه عددی کاربر
+  // ۲. اولویت اول: استفاده از نام کاربری واقعی ثبت‌کننده دریافت شده از بک‌اند (در صورتی که با نام مخاطب یکسان نباشد)
+  if (
+    contact.created_by_user_name &&
+    contact.created_by_user_name.trim() !== '' &&
+    contact.created_by_user_name.trim() !== contact.name.trim()
+  ) {
+    return contact.created_by_user_name.trim();
+  }
+
+  if (contact.created_by_user_name && contact.created_by_user_name.trim() !== '') {
+    return contact.created_by_user_name.trim();
+  }
+
+  // ۳. اگر شناسه کاربر ثبت‌کننده مشخص است
   if (contact.created_by_user_id) {
     return `کاربر #${contact.created_by_user_id}`;
   }
 
-  return 'کاربر سازمانی';
+  return 'مدیر سیستم';
 }
 
 

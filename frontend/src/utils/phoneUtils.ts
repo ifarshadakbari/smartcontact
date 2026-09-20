@@ -8,7 +8,7 @@ export function getDomainDisplayName(
   domains?: LdapDomain[]
 ): string {
   if (contact.contact_type === 'external') {
-    return contact.company_name || 'شرکت طرف قرارداد';
+    return contact.company_name || 'برون‌سازمانی';
   }
 
   const domainList = domains || [];
@@ -293,9 +293,9 @@ export function getVisibleLandlines(contact: Contact, currentUser: User | null):
  * Checks if VoIP click-to-call is enabled and configured on a domain
  */
 export function isDomainVoipEnabled(domain?: LdapDomain | null): boolean {
-  if (!domain) return true;
+  if (!domain) return false;
   if (domain.voip_enabled === false) return false;
-  return Boolean(domain.voip_server_host && domain.voip_server_host.trim() !== '');
+  return true;
 }
 
 /**
@@ -313,15 +313,34 @@ export function isContactVoipCallable(
     return { callable: false, reason: 'برای حساب کاربری شما شماره داخلی در Active Directory ثبت نشده است.' };
   }
 
-  // If internal contact, verify domain's VoIP status
+  // 1. Check if the current user's own domain has VoIP disabled
+  if (domains && domains.length > 0) {
+    const userDomain = domains.find(
+      (d) =>
+        (currentUser.domain_id && String(d.id) === String(currentUser.domain_id)) ||
+        (currentUser.domain && (d.name === currentUser.domain || d.display_name === currentUser.domain))
+    );
+    if (userDomain && !isDomainVoipEnabled(userDomain)) {
+      return {
+        callable: false,
+        reason: `سرویس VoIP برای دامین شما («${userDomain.display_name || userDomain.name}») غیرفعال است.`,
+      };
+    }
+  }
+
+  // 2. If internal contact, verify contact's domain VoIP status
   if (contact.contact_type !== 'external' && domains && domains.length > 0) {
     const matchedDomain = domains.find(
       (d) =>
         (contact.domain_id && String(d.id) === String(contact.domain_id)) ||
-        (contact.domain && (d.name === contact.domain || d.display_name === contact.domain))
+        (contact.domain && (d.name === contact.domain || d.display_name === contact.domain)) ||
+        (contact.domain_name && (d.name === contact.domain_name || d.display_name === contact.domain_name))
     );
     if (matchedDomain && !isDomainVoipEnabled(matchedDomain)) {
-      return { callable: false, reason: `سرویس VoIP برای دامین «${matchedDomain.display_name || matchedDomain.name}» غیرفعال است.` };
+      return {
+        callable: false,
+        reason: `سرویس VoIP برای دامین «${matchedDomain.display_name || matchedDomain.name}» غیرفعال است.`,
+      };
     }
   }
 
@@ -365,11 +384,15 @@ export function deduplicateDepartments(departments: Department[]): Department[] 
       }
       seen.set(key, { ...d, name: cleanName });
     } else {
-      // If the duplicate has space, prefer the name with space
       const existing = seen.get(key)!;
-      if (!existing.name.includes(' ') && d.name.includes(' ')) {
-        seen.set(key, { ...existing, name: d.name.trim() });
-      }
+      const cleanName = (!existing.name.includes(' ') && d.name.includes(' ')) ? d.name.trim() : existing.name;
+      seen.set(key, {
+        ...existing,
+        name: cleanName,
+        domain_id: d.domain_id !== undefined ? d.domain_id : existing.domain_id,
+        domain_name: d.domain_name || existing.domain_name,
+        code: d.code || existing.code,
+      });
     }
   }
 
@@ -501,7 +524,7 @@ export function getVisibleMobiles(
 ): VisibleMobileItem[] {
   const list: VisibleMobileItem[] = [];
   const isAdmin = currentUser?.role === 'admin';
-  const isCreator = Boolean(currentUser && contact.created_by_user_id === currentUser.id);
+  const isCreator = Boolean(currentUser && String(contact.created_by_user_id) === String(currentUser.id));
   const isExternal = contact.contact_type === 'external';
 
   const officialMobiles = (contact.mobiles || []).filter(Boolean);
@@ -511,7 +534,7 @@ export function getVisibleMobiles(
       list.push({
         phone: m,
         type: 'external',
-        label: 'همراه طرف قرارداد',
+        label: 'تلفن همراه',
         isPersonal: false,
       });
     });

@@ -136,7 +136,7 @@ export const ContactTable: React.FC<ContactTableProps> = ({
               const cleanLastName = contact.prefix_title === 'location' && contact.last_name === '-' ? '' : (contact.last_name || '');
               const fullName = [contact.first_name, cleanLastName].filter(Boolean).join(' ');
               const domainDisplayName = getDomainDisplayName(contact, ldapDomains);
-              const isOwner = currentUser ? contact.created_by_user_id === currentUser.id : false;
+              const isOwner = currentUser ? String(contact.created_by_user_id) === String(currentUser.id) : false;
               const isDragging = draggedIndex === index;
               const isOver = dragOverIndex === index;
               const voipCheck = isContactVoipCallable(contact, ldapDomains, currentUser);
@@ -224,7 +224,7 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                               title="کلیک کنید تا کلیه رابط‌های این شرکت فیلتر شوند"
                             >
                               <Building2 className="w-2.5 h-2.5 text-amber-600" />
-                              <span>{contact.company_name || 'شرکت طرف قرارداد'}</span>
+                              <span>{contact.company_name || 'برون‌سازمانی'}</span>
                             </button>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-[10px] text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">
@@ -289,7 +289,7 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                         title="مشاهده همه رابط‌های این شرکت"
                       >
                         <Building2 className="w-3 h-3 text-amber-600" />
-                        <span>{contact.company_name || 'طرف قرارداد'}</span>
+                        <span>{contact.company_name || 'برون‌سازمانی'}</span>
                       </button>
                     ) : contact.department ? (
                       <span className="inline-block bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded text-[11px] border border-neutral-200">
@@ -315,137 +315,217 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                   {/* Fixed Lines + Extension */}
                   <td className="py-3 px-4">
                     {visibleLandlines.length > 0 ? (
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {visibleLandlines.map((l, idx) => {
                           const isWireless = isWirelessLine(l.title);
                           const isRemote = isRemoteLine(l.title);
                           const customTitle = getNonWirelessTitle(l.title);
+                          const isInternal = contact.contact_type !== 'external';
 
-                          return (
-                            <div key={l.id || idx} className="flex flex-wrap items-center gap-1.5 text-xs">
-                              {l.phone ? (
-                                <div className="flex items-center gap-1">
-                                  <a
-                                    href={`tel:${l.phone}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="font-bold text-blue-600 font-mono text-sm tracking-wide hover:underline"
-                                    dir="ltr"
-                                  >
-                                    {l.phone}
-                                  </a>
+                          if (isInternal) {
+                            // درون سازمانی:
+                            // ردیف اول: شماره داخلی با برچسب عنوان اختیاری و یا نمایش برچسب "بی سیم" و "ریموت" (بدون دکمه یا آیکون تماس، همراه با کپی)
+                            // ردیف دوم: شماره تلفن ثابت: با اندازه کوچکتر بدون امکان تماس از طریق VoIP (آیکن تماس از طریق تلفن رومیزی حذف شود)
+                            return (
+                              <div key={l.id || idx} className="space-y-1 text-xs">
+                                {/* ردیف اول: شماره داخلی */}
+                                {l.extension ? (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[11px] text-neutral-500 font-medium">داخلی:</span>
+                                    <span
+                                      className="font-mono text-sm font-bold bg-neutral-100 text-neutral-800 px-2 py-0.5 rounded border border-neutral-300 tracking-wide"
+                                      dir="ltr"
+                                    >
+                                      {l.extension}
+                                    </span>
 
-                                  {canMakeCalls ? (
+                                    {/* برچسب بی‌سیم */}
+                                    {isWireless && (
+                                      <span
+                                        className="inline-flex items-center gap-1 text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200 font-medium whitespace-nowrap"
+                                        title="تلفن داخلی بی‌سیم"
+                                      >
+                                        <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
+                                        <span>بی‌سیم</span>
+                                      </span>
+                                    )}
+
+                                    {/* برچسب ریموت */}
+                                    {isRemote && (
+                                      <span
+                                        className="inline-flex items-center gap-1 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 font-medium whitespace-nowrap"
+                                        title="تلفن داخلی ریموت / دورکار"
+                                      >
+                                        <RemotePhoneIcon className="w-3 h-3 text-purple-600 animate-pulse" />
+                                        <span>ریموت</span>
+                                      </span>
+                                    )}
+
+                                    {/* عنوان اختیاری خط */}
+                                    {customTitle && (
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
+                                        {customTitle}
+                                      </span>
+                                    )}
+
+                                    {/* کپی داخلی */}
                                     <button
                                       type="button"
-                                      onClick={(e) => handleCallClick(e, l.phone, contact, l.title || 'تلفن ثابت')}
-                                      className="p-0.5 cursor-pointer text-emerald-600 hover:text-emerald-800"
-                                      title="تماس مستقیم از تلفن رومیزی شما"
+                                      onClick={(e) => handleCopy(e, l.extension!, `table-ext-${contact.id}-${idx}`)}
+                                      className="text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
+                                      title="کپی داخلی"
                                     >
-                                      <PhoneCall className="w-3.5 h-3.5" />
+                                      {copiedKey === `table-ext-${contact.id}-${idx}` ? (
+                                        <Check className="w-3 h-3 text-emerald-600" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
                                     </button>
-                                  ) : (
-                                    <span
-                                      className="p-0.5 text-neutral-300 cursor-not-allowed"
-                                      title={voipCheck.reason || 'تماس VoIP غیرفعال است'}
-                                    >
-                                      <PhoneCall className="w-3.5 h-3.5" />
-                                    </span>
-                                  )}
+                                  </div>
+                                ) : (
+                                  /* اگر داخلی نداشت اما عنوان یا برچسب داشت */
+                                  (isWireless || isRemote || customTitle) && (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {isWireless && (
+                                        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-medium">
+                                          <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
+                                          <span>بی‌سیم</span>
+                                        </span>
+                                      )}
+                                      {isRemote && (
+                                        <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 font-medium">
+                                          <RemotePhoneIcon className="w-3 h-3 text-purple-600 animate-pulse" />
+                                          <span>ریموت</span>
+                                        </span>
+                                      )}
+                                      {customTitle && (
+                                        <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
+                                          {customTitle}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )
+                                )}
 
-                                  <button
-                                    type="button"
-                                    onClick={(e) => handleCopy(e, l.phone, `table-phone-${contact.id}-${idx}`)}
-                                    className="text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
-                                    title="کپی تلفن ثابت"
-                                  >
-                                    {copiedKey === `table-phone-${contact.id}-${idx}` ? (
-                                      <Check className="w-3 h-3 text-emerald-600" />
-                                    ) : (
-                                      <Copy className="w-3 h-3" />
+                                {/* ردیف دوم: شماره تلفن ثابت با اندازه کوچکتر بدون امکان تماس از طریق VoIP */}
+                                {l.phone && (
+                                  <div className="flex items-center gap-1.5 text-neutral-500 text-xs">
+                                    <span className="text-[10.5px]">تلفن ثابت:</span>
+                                    <span className="font-mono text-xs text-neutral-700 tracking-wider font-semibold" dir="ltr">
+                                      {l.phone}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleCopy(e, l.phone, `table-phone-${contact.id}-${idx}`)}
+                                      className="text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
+                                      title="کپی تلفن ثابت"
+                                    >
+                                      {copiedKey === `table-phone-${contact.id}-${idx}` ? (
+                                        <Check className="w-3 h-3 text-emerald-600" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          } else {
+                            // برون سازمانی:
+                            // ردیف اول: شماره تلفن ثابت با برچسب عنوان اختیاری و سمت چپ آن آیکن تماس و کپی
+                            // ردیف دوم: شماره داخلی با اندازه کوچکتر (بدون درج دکمه آیکون تماس)
+                            return (
+                              <div key={l.id || idx} className="space-y-1 text-xs">
+                                {/* ردیف اول: شماره تلفن ثابت */}
+                                {l.phone ? (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[11px] text-neutral-500 font-medium">تلفن:</span>
+                                    <span
+                                      className="font-bold text-blue-600 font-mono text-sm tracking-wide"
+                                      dir="ltr"
+                                    >
+                                      {l.phone}
+                                    </span>
+
+                                    {/* برچسب عنوان اختیاری */}
+                                    {customTitle && (
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
+                                        {customTitle}
+                                      </span>
                                     )}
-                                  </button>
-                                </div>
-                              ) : null}
 
-                              {/* Title / Non-wireless description */}
-                              {customTitle && (
-                                <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
-                                  {customTitle}
-                                </span>
-                              )}
+                                    {/* سمت چپ: آیکون تماس و کپی */}
+                                    <div className="inline-flex items-center gap-1">
+                                      {canMakeCalls ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleCallClick(e, l.phone, contact, l.title || 'تلفن ثابت')}
+                                          className="p-0.5 cursor-pointer text-emerald-600 hover:text-emerald-800"
+                                          title="تماس مستقیم از تلفن رومیزی شما"
+                                        >
+                                          <PhoneCall className="w-3.5 h-3.5" />
+                                        </button>
+                                      ) : (
+                                        <span
+                                          className="p-0.5 text-neutral-300 cursor-not-allowed"
+                                          title={voipCheck.reason || 'تماس VoIP غیرفعال است'}
+                                        >
+                                          <PhoneCall className="w-3.5 h-3.5" />
+                                        </span>
+                                      )}
 
-                              {isWireless && !l.extension && (
-                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-medium">
-                                  <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
-                                  <span>بی‌سیم</span>
-                                </span>
-                              )}
-
-                              {isRemote && !l.extension && (
-                                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200 font-medium">
-                                  <RemotePhoneIcon className="w-3 h-3 text-purple-600 animate-pulse" />
-                                  <span>ریموت</span>
-                                </span>
-                              )}
-
-                              {l.extension && (
-                                <div className="inline-flex items-center gap-1.5 flex-wrap">
-                                  <span
-                                    className={`font-mono text-neutral-800 rounded border ${
-                                      contact.contact_type !== 'external'
-                                        ? 'text-sm font-bold bg-neutral-100 px-2 py-0.5 border-neutral-300 tracking-wide'
-                                        : 'text-[11px] bg-neutral-100 px-1.5 py-0.5 border-neutral-200'
-                                    }`}
-                                    dir="ltr"
-                                  >
-                                    داخلی: {l.extension}
-                                  </span>
-
-                                  {/* برچسب بی‌سیم همراه با آیکون اختصاصی تلفن بی‌سیم */}
-                                  {isWireless && (
-                                    <span
-                                      className="inline-flex items-center gap-1 text-[10px] bg-sky-50 text-sky-700 px-1.5 py-0.5 rounded border border-sky-200 font-medium whitespace-nowrap"
-                                      title="تلفن داخلی بی‌سیم"
-                                    >
-                                      <CordlessPhoneIcon className="w-3 h-3 text-sky-600 animate-pulse" />
-                                      <span>بی‌سیم</span>
-                                    </span>
-                                  )}
-
-                                  {/* برچسب ریموت همراه با آیکون اختصاصی ریموت */}
-                                  {isRemote && (
-                                    <span
-                                      className="inline-flex items-center gap-1 text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 font-medium whitespace-nowrap"
-                                      title="تلفن داخلی ریموت / دورکار"
-                                    >
-                                      <RemotePhoneIcon className="w-3 h-3 text-purple-600 animate-pulse" />
-                                      <span>ریموت</span>
-                                    </span>
-                                  )}
-
-                                  {contact.contact_type !== 'external' && (
-                                    canMakeCalls ? (
                                       <button
                                         type="button"
-                                        onClick={(e) => handleCallClick(e, l.extension!, contact, `داخلی ${l.extension}`)}
-                                        className="p-0.5 cursor-pointer text-emerald-600 hover:text-emerald-800"
-                                        title="تماس سریع با داخلی از تلفن رومیزی"
+                                        onClick={(e) => handleCopy(e, l.phone, `table-phone-${contact.id}-${idx}`)}
+                                        className="text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
+                                        title="کپی تلفن ثابت"
                                       >
-                                        <PhoneCall className="w-3 h-3" />
+                                        {copiedKey === `table-phone-${contact.id}-${idx}` ? (
+                                          <Check className="w-3 h-3 text-emerald-600" />
+                                        ) : (
+                                          <Copy className="w-3 h-3" />
+                                        )}
                                       </button>
-                                    ) : (
-                                      <span
-                                        className="p-0.5 text-neutral-300 cursor-not-allowed"
-                                        title={voipCheck.reason || 'تماس VoIP غیرفعال است'}
-                                      >
-                                        <PhoneCall className="w-3 h-3" />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* اگر شماره ثابت نداشت اما عنوان داشت */
+                                  customTitle && (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
+                                        {customTitle}
                                       </span>
-                                    )
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
+                                    </div>
+                                  )
+                                )}
+
+                                {/* ردیف دوم: شماره داخلی با اندازه کوچکتر (بدون درج دکمه آیکون تماس) */}
+                                {l.extension && (
+                                  <div className="flex items-center gap-1.5 text-neutral-500 text-xs">
+                                    <span className="text-[10.5px]">داخلی:</span>
+                                    <span
+                                      className="font-mono text-xs font-semibold bg-neutral-100 text-neutral-700 px-1.5 py-0.5 rounded border border-neutral-200"
+                                      dir="ltr"
+                                    >
+                                      {l.extension}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleCopy(e, l.extension!, `table-ext-${contact.id}-${idx}`)}
+                                      className="text-neutral-400 hover:text-neutral-700 p-0.5 cursor-pointer"
+                                      title="کپی داخلی"
+                                    >
+                                      {copiedKey === `table-ext-${contact.id}-${idx}` ? (
+                                        <Check className="w-3 h-3 text-emerald-600" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
                         })}
                       </div>
                     ) : (
