@@ -264,8 +264,8 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                           <span>ثبت شده توسط شما</span>
                         </span>
                       ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, contacts)}`}>
-                          <span>ثبت: {getContactCreatorLabel(contact, contacts)}</span>
+                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, currentUser)}`}>
+                          <span>ثبت: {getContactCreatorLabel(contact, currentUser)}</span>
                         </span>
                       ) : null}
                     </div>

@@ -1547,8 +1547,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                         <span>ثبت شده توسط شما</span>
                       </span>
                     ) : isAdmin && (contact?.created_by_user_name || contact?.created_by_user_id) ? (
-                      <span className="bg-white/10 text-neutral-300 border border-white/10 px-2.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, allContacts)}`}>
-                        <span>ثبت: {getContactCreatorLabel(contact, allContacts)}</span>
+                      <span className="bg-white/10 text-neutral-300 border border-white/10 px-2.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, currentUser)}`}>
+                        <span>ثبت: {getContactCreatorLabel(contact, currentUser)}</span>
                       </span>
                     ) : null}
                   </div>

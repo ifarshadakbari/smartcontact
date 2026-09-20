@@ -201,8 +201,8 @@ export const ContactCard: React.FC<ContactCardProps> = ({
               <span>ثبت شده توسط شما</span>
             </span>
           ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, allContacts)}`}>
-              <span>ثبت: {getContactCreatorLabel(contact, allContacts)}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, currentUser)}`}>
+              <span>ثبت: {getContactCreatorLabel(contact, currentUser)}</span>
             </span>
           ) : null}
         </div>

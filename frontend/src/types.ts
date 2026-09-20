@@ -25,6 +25,7 @@ export interface Contact {
   is_favorite?: boolean;
   // User Ownership & Visibility
   created_by_user_id: number; // شناسه کاربر ایجادکننده
+  created_by_user_name?: string; // نام کاربری یا نام شخص ایجادکننده
   is_public?: boolean; // مخاطب عمومی سازمانی (قابل مشاهده برای همه)
   created_at?: string;
 

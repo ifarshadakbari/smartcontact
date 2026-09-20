@@ -59,7 +59,7 @@ class Contact extends Model
 
     public function getCreatedByUserNameAttribute()
     {
-        return $this->creator ? $this->creator->name : null;
+        return $this->creator ? ($this->creator->username ?: ($this->creator->name ?: $this->creator->email)) : null;
     }
 
     public function favoritedByUsers()
