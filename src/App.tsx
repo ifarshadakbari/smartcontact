@@ -433,11 +433,7 @@ export default function App() {
     setSearchQuery('');
     setFavoritesOnly(false);
     setScopeFilter('all');
-    setSortBy('custom');
-    setSortOrder('asc');
-    setCurrentPage(1);
     setSelectedContact(null);
-    showToast('از حساب کاربری خارج شدید و فیلترها بازنشانی شدند.');
   };
 
   // Save Laravel Config

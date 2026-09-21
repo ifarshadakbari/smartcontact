@@ -6,7 +6,7 @@ import {createApiMiddleware} from './devApiMiddleware';
 
 export default defineConfig(() => {
   return {
-    base: '/webapp/smartcontact/',
+    base: '/',
     plugins: [
       react(),
       tailwindcss(),
@@ -19,7 +19,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, './src'),
       },
     },
     server: {

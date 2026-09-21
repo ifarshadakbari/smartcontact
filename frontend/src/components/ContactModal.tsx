@@ -47,6 +47,7 @@ import {
   getNonWirelessTitle,
   getVisibleLandlines,
   deduplicateDepartments,
+  isContactVoipCallable,
 } from '../utils/phoneUtils';
 
 interface ContactModalProps {
@@ -89,7 +90,14 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   onSelectContact,
 }) => {
   const isAdmin = currentUser ? currentUser.role === 'admin' : false;
-  const isOwner = contact && currentUser ? String(contact.created_by_user_id) === String(currentUser.id) : false;
+  const isOwner = Boolean(
+    contact &&
+    currentUser?.id &&
+    contact.created_by_user_id &&
+    Number(contact.created_by_user_id) !== 0 &&
+    String(contact.created_by_user_id) === String(currentUser.id)
+  );
+  const creatorLabel = getContactCreatorLabel(contact, currentUser, allContacts);
   // مخاطبینی که ثبت‌کننده مشخص ندارند (مانند مخاطبین سیستمی/LDAP/نمونه اولیه)، توسط ادمین یا کاربر واردشده قابل ویرایش هستند
   const isSystemContact = !contact?.created_by_user_id;
   const canEdit = isCreateMode
@@ -282,7 +290,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
   if (!isOpen) return null;
 
-  const canMakeCalls = Boolean(currentUser && currentUser.extension && currentUser.extension.trim() !== '');
+  const voipCheck = contact ? isContactVoipCallable(contact, ldapDomains, currentUser) : { callable: false, reason: 'مخاطب نامعتبر است' };
+  const canMakeCalls = voipCheck.callable;
 
   const handleCallClick = (targetNumber: string, title?: string) => {
     if (!currentUser) {
@@ -1593,9 +1602,9 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                         <UserCheck className="w-3 h-3 text-emerald-300" />
                         <span>ثبت شده توسط شما</span>
                       </span>
-                    ) : isAdmin && (contact?.created_by_user_name || contact?.created_by_user_id) ? (
-                      <span className="bg-white/10 text-neutral-300 border border-white/10 px-2.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, currentUser)}`}>
-                        <span>ثبت: {getContactCreatorLabel(contact, currentUser)}</span>
+                    ) : (isAdmin || Boolean(currentUser)) && creatorLabel ? (
+                      <span className="bg-white/10 text-neutral-300 border border-white/10 px-2.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1" title={`ثبت‌شده توسط: ${creatorLabel}`}>
+                        <span>ثبت توسط: {creatorLabel}</span>
                       </span>
                     ) : null}
                   </div>
@@ -1694,7 +1703,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
                                   {/* دکمه‌های سمت چپ ردیف اول: تماس و کپی */}
                                   <div className="flex items-center gap-2 shrink-0 justify-end">
-                                    {canMakeCalls && (
+                                    {canMakeCalls ? (
                                       <button
                                         type="button"
                                         onClick={() => handleCallClick(l.extension, `داخلی ${l.extension}`)}
@@ -1702,6 +1711,16 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                                         title="تماس مستقیم با این شماره داخلی از تلفن رومیزی شما"
                                       >
                                         <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>تماس با داخلی</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled
+                                        className="px-3 py-1.5 bg-neutral-100 border border-neutral-200 rounded-lg text-xs font-medium text-neutral-400 cursor-not-allowed flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+                                        title={voipCheck.reason || 'قابلیت VoIP برای این دامین غیرفعال است'}
+                                      >
+                                        <PhoneCall className="w-3.5 h-3.5 text-neutral-400" />
                                         <span>تماس با داخلی</span>
                                       </button>
                                     )}
@@ -1787,7 +1806,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
                                   {/* سمت چپ: آیکون تماس و کپی */}
                                   <div className="flex items-center gap-2 shrink-0 justify-end">
-                                    {canMakeCalls && (
+                                    {canMakeCalls ? (
                                       <button
                                         type="button"
                                         onClick={() => handleCallClick(l.phone, l.title || 'تلفن ثابت')}
@@ -1795,6 +1814,16 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                                         title="تماس با خط ثابت"
                                       >
                                         <PhoneCall className="w-3.5 h-3.5 text-blue-600" />
+                                        <span>تماس با خط ثابت</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled
+                                        className="px-3 py-1.5 bg-neutral-100 border border-neutral-200 rounded-lg text-xs font-medium text-neutral-400 cursor-not-allowed flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+                                        title={voipCheck.reason || 'قابلیت VoIP برای این دامین غیرفعال است'}
+                                      >
+                                        <PhoneCall className="w-3.5 h-3.5 text-neutral-400" />
                                         <span>تماس با خط ثابت</span>
                                       </button>
                                     )}
@@ -2026,7 +2055,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                             </div>
 
                             <div className="flex items-center gap-2 font-sans self-start sm:self-auto shrink-0 flex-wrap">
-                              {contact && canMakeCalls && (
+                              {contact && (canMakeCalls ? (
                                 <button
                                   type="button"
                                   onClick={() => handleCallClick(mobItem.phone, mobItem.isPersonal ? 'همراه دفترچه شخصی' : 'شماره همراه')}
@@ -2036,7 +2065,17 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                                   <PhoneCall className="w-3.5 h-3.5 text-emerald-600" />
                                   <span>تماس با همراه</span>
                                 </button>
-                              )}
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="px-3 py-1.5 bg-neutral-100 border border-neutral-200 rounded-lg text-neutral-400 cursor-not-allowed text-xs font-medium flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+                                  title={voipCheck.reason || 'قابلیت VoIP برای این دامین غیرفعال است'}
+                                >
+                                  <PhoneCall className="w-3.5 h-3.5 text-neutral-400" />
+                                  <span>تماس با همراه</span>
+                                </button>
+                              ))}
                               <button
                                 type="button"
                                 onClick={() => handleCopy(mobItem.phone, `modal-mob-${idx}`)}

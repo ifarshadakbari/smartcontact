@@ -89,7 +89,13 @@ export const ContactCard: React.FC<ContactCardProps> = ({
   const cleanLastName = contact.prefix_title === 'location' && contact.last_name === '-' ? '' : (contact.last_name || '');
   const fullName = [contact.first_name, cleanLastName].filter(Boolean).join(' ');
   const domainDisplayName = getDomainDisplayName(contact, ldapDomains);
-  const isOwner = currentUser ? String(contact.created_by_user_id) === String(currentUser.id) : false;
+  const isOwner = Boolean(
+    currentUser?.id &&
+    contact.created_by_user_id &&
+    Number(contact.created_by_user_id) !== 0 &&
+    String(contact.created_by_user_id) === String(currentUser.id)
+  );
+  const creatorLabel = getContactCreatorLabel(contact, currentUser);
   const isAdmin = currentUser ? currentUser.role === 'admin' : false;
   const canMakeCalls = voipCheck.callable;
   const visibleLandlines = getVisibleLandlines(contact, currentUser);
@@ -200,9 +206,9 @@ export const ContactCard: React.FC<ContactCardProps> = ({
               <UserCheck className="w-3 h-3 text-emerald-600" />
               <span>ثبت شده توسط شما</span>
             </span>
-          ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, currentUser)}`}>
-              <span>ثبت: {getContactCreatorLabel(contact, currentUser)}</span>
+          ) : (isAdmin || Boolean(currentUser)) && creatorLabel ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${creatorLabel}`}>
+              <span>ثبت توسط: {creatorLabel}</span>
             </span>
           ) : null}
         </div>
@@ -498,7 +504,7 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                         </span>
                       )}
 
-                      {canMakeCalls && (
+                      {canMakeCalls ? (
                         <button
                           type="button"
                           onClick={(e) => handleCallClick(e, mobItem.phone, `موبایل ${mobItem.phone}`)}
@@ -507,6 +513,13 @@ export const ContactCard: React.FC<ContactCardProps> = ({
                         >
                           <PhoneCall className="w-3.5 h-3.5" />
                         </button>
+                      ) : (
+                        <span
+                          className="p-1 text-neutral-300 cursor-not-allowed"
+                          title={voipCheck.reason || 'قابلیت VoIP برای این دامین غیرفعال است'}
+                        >
+                          <PhoneCall className="w-3.5 h-3.5" />
+                        </span>
                       )}
 
                       <button

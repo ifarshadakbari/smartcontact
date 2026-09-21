@@ -136,7 +136,13 @@ export const ContactTable: React.FC<ContactTableProps> = ({
               const cleanLastName = contact.prefix_title === 'location' && contact.last_name === '-' ? '' : (contact.last_name || '');
               const fullName = [contact.first_name, cleanLastName].filter(Boolean).join(' ');
               const domainDisplayName = getDomainDisplayName(contact, ldapDomains);
-              const isOwner = currentUser ? String(contact.created_by_user_id) === String(currentUser.id) : false;
+              const isOwner = Boolean(
+                currentUser?.id &&
+                contact.created_by_user_id &&
+                Number(contact.created_by_user_id) !== 0 &&
+                String(contact.created_by_user_id) === String(currentUser.id)
+              );
+              const creatorLabel = getContactCreatorLabel(contact, currentUser, contacts);
               const isDragging = draggedIndex === index;
               const isOver = dragOverIndex === index;
               const voipCheck = isContactVoipCallable(contact, ldapDomains, currentUser);
@@ -263,9 +269,9 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                           <UserCheck className="w-3 h-3 text-emerald-600" />
                           <span>ثبت شده توسط شما</span>
                         </span>
-                      ) : isAdmin && (contact.created_by_user_name || contact.created_by_user_id) ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${getContactCreatorLabel(contact, currentUser)}`}>
-                          <span>ثبت: {getContactCreatorLabel(contact, currentUser)}</span>
+                      ) : (isAdmin || Boolean(currentUser)) && creatorLabel ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200" title={`ثبت‌شده توسط: ${creatorLabel}`}>
+                          <span>ثبت توسط: {creatorLabel}</span>
                         </span>
                       ) : null}
                     </div>
@@ -365,6 +371,25 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                     {customTitle && (
                                       <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded text-neutral-500 bg-neutral-50 border border-neutral-200">
                                         {customTitle}
+                                      </span>
+                                    )}
+
+                                    {/* تماس مستقیم با داخلی */}
+                                    {canMakeCalls ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleCallClick(e, l.extension!, contact, `داخلی ${l.extension}`)}
+                                        className="p-0.5 cursor-pointer text-emerald-600 hover:text-emerald-800"
+                                        title="تماس مستقیم با این داخلی از طریق IP Phone شما"
+                                      >
+                                        <PhoneCall className="w-3.5 h-3.5" />
+                                      </button>
+                                    ) : (
+                                      <span
+                                        className="p-0.5 text-neutral-300 cursor-not-allowed"
+                                        title={voipCheck.reason || 'قابلیت VoIP برای این دامین غیرفعال است'}
+                                      >
+                                        <PhoneCall className="w-3.5 h-3.5" />
                                       </span>
                                     )}
 
@@ -580,7 +605,7 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                   </span>
                                 )}
 
-                                {canMakeCalls && (
+                                {canMakeCalls ? (
                                   <button
                                     type="button"
                                     onClick={(e) => handleCallClick(e, mobItem.phone, contact, `موبایل ${mobItem.phone}`)}
@@ -589,6 +614,13 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                   >
                                     <PhoneCall className="w-3.5 h-3.5" />
                                   </button>
+                                ) : (
+                                  <span
+                                    className="p-0.5 text-neutral-300 cursor-not-allowed"
+                                    title={voipCheck.reason || 'قابلیت VoIP برای این دامین غیرفعال است'}
+                                  >
+                                    <PhoneCall className="w-3.5 h-3.5" />
+                                  </span>
                                 )}
 
                                 <button

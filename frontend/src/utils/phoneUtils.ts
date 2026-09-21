@@ -294,8 +294,16 @@ export function getVisibleLandlines(contact: Contact, currentUser: User | null):
  */
 export function isDomainVoipEnabled(domain?: LdapDomain | null): boolean {
   if (!domain) return false;
-  if (domain.voip_enabled === false) return false;
-  return true;
+  // If explicitly disabled as false, 0 or '0'
+  if (domain.voip_enabled === false || (domain.voip_enabled as any) === 0 || (domain.voip_enabled as any) === '0') {
+    return false;
+  }
+  // If explicitly enabled
+  if (domain.voip_enabled === true || (domain.voip_enabled as any) === 1 || (domain.voip_enabled as any) === '1') {
+    return true;
+  }
+  // If not explicitly set, check if a VoIP server host is configured
+  return Boolean(domain.voip_server_host && domain.voip_server_host.trim() !== '');
 }
 
 /**
@@ -318,7 +326,10 @@ export function isContactVoipCallable(
     const userDomain = domains.find(
       (d) =>
         (currentUser.domain_id && String(d.id) === String(currentUser.domain_id)) ||
-        (currentUser.domain && (d.name === currentUser.domain || d.display_name === currentUser.domain))
+        (currentUser.domain && (
+          d.name.toLowerCase() === currentUser.domain.toLowerCase() ||
+          d.display_name.toLowerCase() === currentUser.domain.toLowerCase()
+        ))
     );
     if (userDomain && !isDomainVoipEnabled(userDomain)) {
       return {
@@ -333,13 +344,19 @@ export function isContactVoipCallable(
     const matchedDomain = domains.find(
       (d) =>
         (contact.domain_id && String(d.id) === String(contact.domain_id)) ||
-        (contact.domain && (d.name === contact.domain || d.display_name === contact.domain)) ||
-        (contact.domain_name && (d.name === contact.domain_name || d.display_name === contact.domain_name))
+        (contact.domain && (
+          d.name.toLowerCase() === contact.domain.toLowerCase() ||
+          d.display_name.toLowerCase() === contact.domain.toLowerCase()
+        )) ||
+        (contact.domain_name && (
+          d.name.toLowerCase() === contact.domain_name.toLowerCase() ||
+          d.display_name.toLowerCase() === contact.domain_name.toLowerCase()
+        ))
     );
     if (matchedDomain && !isDomainVoipEnabled(matchedDomain)) {
       return {
         callable: false,
-        reason: `سرویس VoIP برای دامین «${matchedDomain.display_name || matchedDomain.name}» غیرفعال است.`,
+        reason: `قابلیت VoIP بر روی دامین «${matchedDomain.display_name || matchedDomain.name}» غیرفعال است.`,
       };
     }
   }
