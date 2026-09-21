@@ -382,6 +382,13 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                                       </span>
                                     )}
 
+                                    {l.is_admin_only && (
+                                      <span className="inline-flex items-center gap-0.5 text-[9.5px] text-amber-900 bg-amber-100 border border-amber-300 px-1 py-0.2 rounded font-bold">
+                                        <Lock className="w-2.5 h-2.5 text-amber-700" />
+                                        <span>محرمانه</span>
+                                      </span>
+                                    )}
+
                                     {/* تماس مستقیم با داخلی */}
                                     {canMakeCalls ? (
                                       <button

@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Printer, ArrowRight, LayoutGrid, FileText, Columns2, Columns3 } from 'lucide-react';
-import { Contact, LdapDomain } from '../types';
-import { getDomainDisplayName, isWirelessLine, isRemoteLine } from '../utils/phoneUtils';
+import { Contact, LdapDomain, User } from '../types';
+import { getDomainDisplayName, isWirelessLine, isRemoteLine, getVisibleLandlines } from '../utils/phoneUtils';
 
 interface PrintViewProps {
   contacts: Contact[];
   ldapDomains?: LdapDomain[];
+  currentUser?: User | null;
   onBack?: () => void;
   onClose?: () => void;
 }
 
-export const PrintView: React.FC<PrintViewProps> = ({ contacts, ldapDomains, onBack, onClose }) => {
+export const PrintView: React.FC<PrintViewProps> = ({ contacts, ldapDomains, currentUser, onBack, onClose }) => {
   const [printMode, setPrintMode] = useState<'full' | 'compact'>('compact');
   const [columns, setColumns] = useState<1 | 2 | 3>(2);
 
@@ -206,7 +207,8 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, ldapDomains, onB
                     {list.map((c) => {
                       const prefix = c.prefix_title === 'ms' ? 'خانم' : c.prefix_title === 'location' ? '' : 'آقای';
                       const domainName = c.contact_type === 'external' ? (c.company_name || 'برون‌سازمانی') : getDomainDisplayName(c, ldapDomains);
-                      const exts = (c.landlines || [])
+                      const visibleLines = getVisibleLandlines(c, currentUser);
+                      const exts = visibleLines
                         .filter((l) => l.extension || l.phone)
                         .map((l) => {
                           const tag = isWirelessLine(l.title) ? ' (بی‌سیم)' : isRemoteLine(l.title) ? ' (ریموت)' : '';
@@ -251,6 +253,7 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, ldapDomains, onB
                   <tbody className="divide-y divide-neutral-200">
                     {list.map((c) => {
                       const prefix = c.prefix_title === 'ms' ? 'خانم' : c.prefix_title === 'location' ? '' : 'آقای';
+                      const visibleLines = getVisibleLandlines(c, currentUser);
                       return (
                         <tr key={c.id} className="hover:bg-neutral-50">
                           <td className="py-1.5 px-1.5">
@@ -264,9 +267,9 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, ldapDomains, onB
                             </div>
                           </td>
                           <td className="py-1.5 px-1.5 font-mono text-neutral-900 text-[10px]" dir="ltr">
-                            {c.landlines && c.landlines.length > 0 ? (
+                            {visibleLines && visibleLines.length > 0 ? (
                               <div className="space-y-0.5">
-                                {c.landlines.map((l, i) => {
+                                {visibleLines.map((l, i) => {
                                   const tag = isWirelessLine(l.title) ? ' [بی‌سیم]' : isRemoteLine(l.title) ? ' [ریموت]' : '';
                                   return (
                                     <div key={i} className="text-[10px] whitespace-nowrap">

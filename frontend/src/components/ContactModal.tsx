@@ -196,6 +196,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   const [personnelCode, setPersonnelCode] = useState('');
   const [isPublic, setIsPublic] = useState(true);
   const [isFavorite, setIsFavorite] = useState<boolean>(() => Boolean(contact?.is_favorite));
+  // Keep hidden admin-only landlines in state so they are preserved when a non-admin edits other contact fields
+  const [hiddenAdminLandlines, setHiddenAdminLandlines] = useState<LandlineEntry[]>([]);
 
   // Personal Overlay Form State (Detail View)
   const [personalMobilesState, setPersonalMobilesState] = useState<Record<string | number, string[]>>(
@@ -243,7 +245,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
       setMobiles(contact.mobiles && contact.mobiles.length > 0 ? contact.mobiles : ['']);
       setIsMobilePublic(contact.is_mobile_public ?? false);
 
-      const normalizedLandlines: LandlineEntry[] =
+      const allNormalized: LandlineEntry[] =
         contact.landlines && contact.landlines.length > 0
           ? contact.landlines.map((l: any, idx: number) => {
               let phone = String(l?.phone || '').trim();
@@ -261,10 +263,25 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                 phone,
                 extension,
                 title: l?.title ? String(l.title).trim() : '',
+                is_admin_only: Boolean(l?.is_admin_only),
               };
             })
-          : [{ id: '1', phone: '', extension: '', title: '' }];
-      setLandlines(normalizedLandlines);
+          : [{ id: '1', phone: '', extension: '', title: '', is_admin_only: false }];
+
+      if (!isAdmin) {
+        // کاربران غیر ادمین نباید خطوط اختصاصی ادمین (is_admin_only) را مشاهده کنند
+        const visibleForNonAdmin = allNormalized.filter((l) => !l.is_admin_only);
+        const hiddenForAdmin = allNormalized.filter((l) => l.is_admin_only);
+        setHiddenAdminLandlines(hiddenForAdmin);
+        setLandlines(
+          visibleForNonAdmin.length > 0
+            ? visibleForNonAdmin
+            : [{ id: '1', phone: '', extension: '', title: '', is_admin_only: false }]
+        );
+      } else {
+        setHiddenAdminLandlines([]);
+        setLandlines(allNormalized);
+      }
       setEmail(contact.email || '');
       setDescription(contact.description || '');
       setAvatar(contact.avatar);
@@ -609,11 +626,17 @@ export const ContactModal: React.FC<ContactModalProps> = ({
           phone: String(l?.phone || l?.number || '').trim(),
           extension: String(l?.extension || '').trim(),
           title: l?.title ? String(l.title).trim() : undefined,
+          is_admin_only: isAdmin ? Boolean(l?.is_admin_only) : false,
         }))
         .filter((l) => l.phone !== '' || l.extension !== '');
 
+      // Combine with any pre-existing admin-only landlines that were hidden from non-admin editors
+      const finalLandlines = !isAdmin && hiddenAdminLandlines.length > 0
+        ? [...validLandlines, ...hiddenAdminLandlines]
+        : validLandlines;
+
       // *** Check: At least one mobile OR at least one landline required
-      if (validMobiles.length === 0 && validLandlines.length === 0) {
+      if (validMobiles.length === 0 && finalLandlines.length === 0) {
         setValidationError(
           'ثبت حداقل یکی از موارد «شماره همراه» یا «خط تلفن ثابت و داخلی» الزامی می‌باشد.'
         );
@@ -653,7 +676,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
         mobiles: validMobiles,
         is_mobile_public: isAdmin && isPublic ? (contactType === 'internal' ? isMobilePublic : true) : false,
         personal_mobiles: contact?.personal_mobiles || {},
-        landlines: validLandlines,
+        landlines: finalLandlines,
         email: String(email || '').trim() || undefined,
         description: String(description || '').trim() || undefined,
         avatar,
@@ -1671,11 +1694,16 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                     <Phone className="w-4 h-4 text-blue-600" />
                     <span>خطوط تلفن ثابت و شماره‌های داخلی</span>
                   </div>
-                  {landlines && landlines.length > 0 && (
-                    <span className="text-[11px] text-neutral-400 font-medium">
-                      {landlines.filter((l) => l.phone || l.extension).length} خط ثبت شده
-                    </span>
-                  )}
+                  {(() => {
+                    const visibleCount = contact
+                      ? getVisibleLandlines(contact, currentUser).length
+                      : (landlines || []).filter((l) => l.phone || l.extension).length;
+                    return visibleCount > 0 ? (
+                      <span className="text-[11px] text-neutral-400 font-medium">
+                        {visibleCount} خط ثبت شده
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
 
                 {(() => {
