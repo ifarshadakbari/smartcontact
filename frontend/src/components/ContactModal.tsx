@@ -32,8 +32,61 @@ import {
 import { Contact, LandlineEntry, PrefixTitle, User, Department, LdapDomain } from '../types';
 import { Avatar } from './Avatar';
 import { CordlessPhoneIcon } from './CordlessPhoneIcon';
-import { RemotePhoneIcon } from './RemotePhoneIcon';
-import { resizeAvatarImage, getBase64SizeInKb } from '../utils/imageUtils';
+
+const RemotePhoneIcon: React.FC<React.SVGProps<SVGSVGElement>> = ({ className = 'w-4 h-4', ...props }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    <circle cx="18" cy="6" r="3" strokeWidth="1.5" />
+    <path d="M15.5 6h5" strokeWidth="1.2" />
+    <path d="M18 3.5v5" strokeWidth="1.2" />
+  </svg>
+);
+
+const getBase64SizeInKb = (base64String?: string | null): number => {
+  if (!base64String) return 0;
+  const commaIndex = base64String.indexOf(',');
+  const clean = commaIndex >= 0 ? base64String.slice(commaIndex + 1) : base64String;
+  return Math.max(1, Math.round(((clean.length * 3) / 4) / 1024));
+};
+
+const resizeAvatarImage = (file: File, { maxSize = 300, quality = 0.85 } = {}): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('خطا در خواندن فایل تصویر'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('فایل انتخاب شده تصویر معتبر نیست'));
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > maxSize) {
+            height = Math.round((height * maxSize) / width);
+            width = maxSize;
+          }
+        } else {
+          if (height > maxSize) {
+            width = Math.round((width * maxSize) / height);
+            height = maxSize;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, width);
+        canvas.height = Math.max(1, height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('عدم دسترسی به بوم پردازش تصویر'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
 import { getContactCreatorLabel } from '../utils/contactUtils';
 import {
   getVisibleMobiles,
