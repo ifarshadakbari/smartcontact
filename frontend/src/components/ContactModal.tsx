@@ -442,7 +442,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   const handleUpdateLandline = (
     index: number,
     field: keyof LandlineEntry,
-    val: string
+    val: string | boolean | undefined
   ) => {
     const updated = [...landlines];
     updated[index] = { ...updated[index], [field]: val };

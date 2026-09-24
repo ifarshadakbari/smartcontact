@@ -49,19 +49,20 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
 
   // Helper to get display title for any domain name or ID
   const formatDomainTitle = useCallback(
-    (domainId?: string, domainName?: string): string => {
-      if (!domainId && !domainName) {
+    (domainId?: string | number, domainName?: string): string => {
+      const dIdStr = domainId != null ? String(domainId) : undefined;
+      if (!dIdStr && !domainName) {
         return ldapDomains[0]?.display_name || ldapDomains[0]?.name || 'دامین پیش‌فرض';
       }
       const found = ldapDomains.find(
         (d) =>
-          (domainId && d.id === domainId) ||
+          (dIdStr && String(d.id) === dIdStr) ||
           (domainName && (d.name === domainName || d.display_name === domainName))
       );
       if (found?.display_name) return found.display_name;
       if (found?.name) return found.name;
       if (domainName) return domainName;
-      if (domainId) return domainId;
+      if (dIdStr) return dIdStr;
       return ldapDomains[0]?.display_name || ldapDomains[0]?.name || 'دامین پیش‌فرض';
     },
     [ldapDomains]

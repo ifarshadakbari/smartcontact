@@ -38,7 +38,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
   const [activeTab, setActiveTab] = useState<'list' | 'edit' | 'code'>('list');
   const [editingDomain, setEditingDomain] = useState<LdapDomain | null>(null);
   const [isTestingId, setIsTestingId] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; latencyMs: number }>>({});
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; latencyMs?: number }>>({});
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Form states for creating / editing
@@ -66,7 +66,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
   const [voipChannelTech, setVoipChannelTech] = useState<'SIP' | 'PJSIP' | 'DAHDI'>('SIP');
   const [voipAutoAnswer, setVoipAutoAnswer] = useState(true);
   const [isTestingVoipId, setIsTestingVoipId] = useState<string | null>(null);
-  const [voipTestResults, setVoipTestResults] = useState<Record<string, { success: boolean; message: string; latencyMs: number }>>({});
+  const [voipTestResults, setVoipTestResults] = useState<Record<string, { success: boolean; message: string; latencyMs?: number }>>({});
   const [codeSubTab, setCodeSubTab] = useState<'ldap' | 'voip' | 'manager' | 'routes'>('ldap');
 
   if (!isOpen) return null;
@@ -107,7 +107,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
     setHost(domain.host);
     setPort(domain.port);
     setBaseDn(domain.base_dn);
-    setEncryption(domain.encryption);
+    setEncryption((domain.encryption as 'none' | 'ssl' | 'tls') || 'none');
     setBindUser(domain.bind_user || '');
     setBindPassword(domain.bind_password || '');
     setUserFilter(domain.user_filter || '(&(objectClass=user)(sAMAccountName={username}))');
@@ -123,7 +123,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
     setVoipAmiSecret(domain.voip_ami_secret || '');
     setVoipContext(domain.voip_context || 'from-internal');
     setVoipTrunkPrefix(domain.voip_trunk_prefix || '');
-    setVoipChannelTech(domain.voip_channel_tech || 'SIP');
+    setVoipChannelTech((domain.voip_channel_tech as 'SIP' | 'PJSIP' | 'DAHDI') || 'SIP');
     setVoipAutoAnswer(domain.voip_auto_answer ?? true);
 
     setActiveTab('edit');

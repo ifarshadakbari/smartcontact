@@ -1,198 +1,154 @@
-import { BlfState, BlfExtensionInfo, UserBlfPermission, Contact } from '../types';
-
-const STORAGE_KEY_BLF_PERMISSIONS = 'enterprise_phonebook_blf_permissions_v1';
-const STORAGE_KEY_BLF_STATES = 'enterprise_phonebook_blf_states_v1';
-
-export const DEFAULT_BLF_PERMISSIONS: UserBlfPermission[] = [];
-
-const INITIAL_BLF_STATES: Record<string, { state: BlfState; durationSec?: number; lastChanged: string }> = {};
-
-// Listeners for live BLF event changes
-type BlfListener = (states: Record<string, { state: BlfState; durationSec?: number; lastChanged: string }>) => void;
-const listeners: Set<BlfListener> = new Set();
-
-export const getStoredBlfPermissions = (): UserBlfPermission[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_BLF_PERMISSIONS);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.error('Error loading BLF permissions', e);
-  }
-  return DEFAULT_BLF_PERMISSIONS;
-};
-
-export const saveStoredBlfPermissions = (perms: UserBlfPermission[]): void => {
-  try {
-    localStorage.setItem(STORAGE_KEY_BLF_PERMISSIONS, JSON.stringify(perms));
-  } catch (e) {
-    console.error('Error saving BLF permissions', e);
-  }
-};
-
-export const getStoredBlfStates = (): Record<string, { state: BlfState; durationSec?: number; lastChanged: string }> => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_BLF_STATES);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.error('Error loading BLF states', e);
-  }
-  return INITIAL_BLF_STATES;
-};
-
-export const saveStoredBlfStates = (
-  states: Record<string, { state: BlfState; durationSec?: number; lastChanged: string }>
-): void => {
-  try {
-    localStorage.setItem(STORAGE_KEY_BLF_STATES, JSON.stringify(states));
-  } catch (e) {
-    console.error('Error saving BLF states', e);
-  }
-  // Notify listeners
-  listeners.forEach((l) => l(states));
-};
-
-export const subscribeToBlfUpdates = (listener: BlfListener): (() => void) => {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-};
-
-/**
- * Simulate or ingest an Asterisk AMI ExtensionStatus event
- * Only 3 explicit states: 'idle' (0), 'busy' (1/2), 'offline' (4/-1)
- */
-export const updateExtensionBlfState = (extension: string, newState: BlfState): void => {
-  const current = getStoredBlfStates();
-  current[extension] = {
-    state: newState,
-    durationSec: newState === 'busy' ? (current[extension]?.durationSec || 1) : 0,
-    lastChanged: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-  };
-  saveStoredBlfStates(current);
-};
-
-/**
- * Compile a list of BlfExtensionInfo given contacts and the user's monitored extension list.
- * STRICT DOMAIN ISOLATION:
- * When userDomainId is provided, any extension belonging to a different domain will NOT be included.
- */
-export const getMonitoredExtensionsData = (
-  monitoredList: string[],
-  allContacts: Contact[],
-  currentStates: Record<string, { state: BlfState; durationSec?: number; lastChanged: string }>,
-  userDomainId?: string
-): BlfExtensionInfo[] => {
-  // Map all contacts by their extensions
-  const extensionToContact = new Map<string, { contact: Contact; extension: string }>();
-
-  allContacts.forEach((c) => {
-    if (c.landlines && Array.isArray(c.landlines)) {
-      c.landlines.forEach((l) => {
-        if (l.extension?.trim()) {
-          const ext = l.extension.trim();
-          if (!extensionToContact.has(ext)) {
-            extensionToContact.set(ext, { contact: c, extension: ext });
-          }
-        }
-      });
-    }
-  });
-
-  const result: BlfExtensionInfo[] = [];
-
-  monitoredList.forEach((ext) => {
-    const matched = extensionToContact.get(ext);
-    const liveState = currentStates[ext] || { state: 'idle', durationSec: 0, lastChanged: 'آماده' };
-
-    if (matched) {
-      const { contact } = matched;
-      // Strict domain boundary check:
-      // If userDomainId is provided, prevent displaying extensions from other domains
-      if (userDomainId && contact.domain_id && String(contact.domain_id) !== String(userDomainId)) {
-        return;
-      }
-
-      result.push({
-        extension: ext,
-        name: `${contact.first_name} ${contact.last_name}`,
-        contactId: contact.id,
-        department: contact.department,
-        jobTitle: contact.job_title,
-        state: liveState.state,
-        domainId: contact.domain_id ? String(contact.domain_id) : undefined,
-        durationSec: liveState.durationSec,
-        lastChanged: liveState.lastChanged,
-      });
-    } else {
-      // If userDomainId is specified, do not display untracked unknown extensions
-      if (!userDomainId) {
-        result.push({
-          extension: ext,
-          name: `داخلی ${ext}`,
-          state: liveState.state,
-          durationSec: liveState.durationSec,
-          lastChanged: liveState.lastChanged,
-        });
-      }
-    }
-  });
-
-  return result;
-};
+import {
+  Contact,
+  UserBlfPermission,
+  BlfExtensionInfo,
+  BlfState,
+} from '../types';
 
 export interface InternalExtensionMeta {
   extension: string;
   name: string;
   department?: string;
-  jobTitle?: string;
   domainId?: string;
   domainName?: string;
   contactId?: number | string;
 }
 
-/**
- * Get all available internal extensions from contacts, including their LDAP domain metadata
- */
-export const getAllAvailableInternalExtensions = (contacts: Contact[]): InternalExtensionMeta[] => {
-  const map = new Map<string, InternalExtensionMeta>();
+const STORAGE_KEY_BLF_PERMISSIONS = 'enterprise_phonebook_blf_permissions';
+const STORAGE_KEY_BLF_STATES = 'enterprise_phonebook_blf_states';
 
-  contacts.forEach((c) => {
-    if (c.contact_type !== 'external' && c.landlines) {
+export function getAllAvailableInternalExtensions(allContacts: Contact[]): InternalExtensionMeta[] {
+  const result: InternalExtensionMeta[] = [];
+  const seen = new Set<string>();
+
+  (allContacts || []).forEach((c) => {
+    if (c.contact_type !== 'internal') return;
+    const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'بدون نام';
+
+    if (Array.isArray(c.landlines)) {
       c.landlines.forEach((l) => {
-        if (l.extension?.trim()) {
-          const ext = l.extension.trim();
-          if (!map.has(ext)) {
-            map.set(ext, {
-              extension: ext,
-              name: `${c.first_name} ${c.last_name}`,
-              department: c.department,
-              jobTitle: c.job_title,
-              domainId: c.domain_id ? String(c.domain_id) : undefined,
-              domainName: c.domain_name,
-              contactId: c.id,
-            });
-          }
+        const ext = (l.extension || '').trim();
+        if (ext && !seen.has(ext)) {
+          seen.add(ext);
+          result.push({
+            extension: ext,
+            name: fullName,
+            department: c.department || '',
+            domainId: c.domain_id ? String(c.domain_id) : c.domain ? String(c.domain) : '',
+            domainName: c.domain_name || c.domain || '',
+            contactId: c.id,
+          });
         }
       });
     }
   });
 
-  return Array.from(map.values()).sort((a, b) => a.extension.localeCompare(b.extension));
-};
+  return result;
+}
 
-/**
- * Get internal extensions belonging strictly to a specific domain
- */
-export const getInternalExtensionsForDomain = (
+export function getStoredBlfPermissions(): UserBlfPermission[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_BLF_PERMISSIONS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.error('Failed to load BLF permissions', e);
+  }
+
+  // Default permissions for Administrator
+  return [
+    {
+      userId: 1,
+      userName: 'مدیر ارشد سامانه (Admin)',
+      department: 'فناوری اطلاعات و زیرساخت',
+      domainId: 'dom-1',
+      domainName: 'دامین مرکزی (پارس زرآسا)',
+      monitoredExtensions: ['101', '102', '103', '104', '105', '201', '202'],
+      canViewAll: true,
+      role: 'admin',
+    },
+  ];
+}
+
+export function saveStoredBlfPermissions(permissions: UserBlfPermission[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_BLF_PERMISSIONS, JSON.stringify(permissions));
+  } catch (e) {
+    console.error('Failed to save BLF permissions', e);
+  }
+}
+
+export function getStoredBlfStates(): Record<string, { state: BlfState; durationSec?: number; callerNumber?: string }> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_BLF_STATES);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (e) {
+    console.error('Failed to load BLF states', e);
+  }
+
+  return {
+    '101': { state: 'idle' },
+    '102': { state: 'idle' },
+    '103': { state: 'idle' },
+    '104': { state: 'idle' },
+    '105': { state: 'offline' },
+    '201': { state: 'idle' },
+    '202': { state: 'idle' },
+  };
+}
+
+export function saveStoredBlfStates(states: Record<string, { state: BlfState; durationSec?: number; callerNumber?: string }>): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_BLF_STATES, JSON.stringify(states));
+  } catch (e) {
+    console.error('Failed to save BLF states', e);
+  }
+}
+
+export function getMonitoredExtensionsData(
+  monitoredExtensions: string[],
   contacts: Contact[],
-  domainId: string
-): InternalExtensionMeta[] => {
-  const allExts = getAllAvailableInternalExtensions(contacts);
-  return allExts.filter((e) => e.domainId === domainId);
-};
+  blfStates: Record<string, any>,
+  domainId?: string | number
+): BlfExtensionInfo[] {
+  if (!Array.isArray(monitoredExtensions)) return [];
+
+  return monitoredExtensions.map((ext) => {
+    const matchedContact = contacts.find((c) =>
+      c.landlines?.some((l) => (l.extension || '').trim() === ext.trim())
+    );
+
+    const stateInfo = blfStates[ext] || { state: 'idle' };
+    const name = matchedContact
+      ? `${matchedContact.first_name} ${matchedContact.last_name}`.trim()
+      : `داخلی ${ext}`;
+
+    return {
+      extension: ext,
+      state: stateInfo.state || 'idle',
+      name,
+      department: matchedContact?.department || '',
+      contactId: matchedContact?.id,
+      domain_id: matchedContact?.domain_id || domainId,
+      durationSec: stateInfo.durationSec || 0,
+      isDnd: Boolean(stateInfo.isDnd),
+    };
+  });
+}
+
+type BlfListener = (states: Record<string, { state: BlfState; durationSec?: number; callerNumber?: string }>) => void;
+const blfListeners = new Set<BlfListener>();
+
+export function subscribeToBlfUpdates(callback: BlfListener): () => void {
+  blfListeners.add(callback);
+  callback(getStoredBlfStates());
+
+  return () => {
+    blfListeners.delete(callback);
+  };
+}
