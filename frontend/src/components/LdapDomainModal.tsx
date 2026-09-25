@@ -66,7 +66,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
   const [voipChannelTech, setVoipChannelTech] = useState<'SIP' | 'PJSIP' | 'DAHDI'>('SIP');
   const [voipAutoAnswer, setVoipAutoAnswer] = useState(true);
   const [isTestingVoipId, setIsTestingVoipId] = useState<string | null>(null);
-  const [voipTestResults, setVoipTestResults] = useState<Record<string, { success: boolean; message: string; latencyMs?: number }>>({});
+  const [voipTestResults, setVoipTestResults] = useState<Record<string, { success: boolean; message: string; latencyMs?: number; version?: string }>>({});
   const [codeSubTab, setCodeSubTab] = useState<'ldap' | 'voip' | 'manager' | 'routes'>('ldap');
 
   if (!isOpen) return null;
@@ -887,6 +887,47 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                   <span>تست ارتباط زنده با سرور دامین</span>
                 </button>
 
+                {voipEnabled && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const tempDomain: LdapDomain = {
+                        id: editingDomain?.id || 'temp-test',
+                        name: name.trim().toUpperCase(),
+                        display_name: displayName.trim() || name.trim(),
+                        host: host.trim(),
+                        port: Number(port) || 389,
+                        base_dn: baseDn.trim(),
+                        encryption,
+                        is_default: isDefault,
+                        is_active: isActive,
+                        voip_enabled: voipEnabled,
+                        voip_server_host: voipServerHost.trim(),
+                        voip_ami_port: Number(voipAmiPort) || 5038,
+                        voip_ami_username: voipAmiUsername.trim(),
+                        voip_ami_secret: voipAmiSecret,
+                        voip_context: voipContext.trim() || 'from-internal',
+                        voip_channel_tech: voipChannelTech,
+                        voip_auto_answer: voipAutoAnswer,
+                      };
+                      setIsTestingVoipId('edit-form');
+                      const res = await testVoipAmiConnection(tempDomain);
+                      setVoipTestResults((prev) => ({ ...prev, 'edit-form': res }));
+                      setIsTestingVoipId(null);
+                    }}
+                    disabled={isTestingVoipId === 'edit-form' || !voipServerHost.trim()}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                    title="تست اتصال زنده به سرویس AMI ایزابل"
+                  >
+                    <PhoneForwarded
+                      className={`w-3.5 h-3.5 text-emerald-600 ${
+                        isTestingVoipId === 'edit-form' ? 'animate-spin' : ''
+                      }`}
+                    />
+                    <span>تست ارتباط زنده با VoIP</span>
+                  </button>
+                )}
+
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -921,6 +962,28 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                     <span className="font-bold">{testResults['edit-form'].message}</span>
                     <span className="text-[10px] text-neutral-500 block mt-0.5 font-mono" dir="ltr">
                       تاخیر زمانی: {testResults['edit-form'].latencyMs} میلی‌ثانیه
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {voipTestResults['edit-form'] && (
+                <div
+                  className={`p-3 rounded-xl border text-xs flex items-start gap-2 animate-in fade-in ${
+                    voipTestResults['edit-form'].success
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : 'bg-red-50 border-red-200 text-red-900'
+                  }`}
+                >
+                  {voipTestResults['edit-form'].success ? (
+                    <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  )}
+                  <div>
+                    <span className="font-bold">[ایزابل VoIP] {voipTestResults['edit-form'].message}</span>
+                    <span className="text-[10px] text-neutral-500 block mt-0.5 font-mono" dir="ltr">
+                      تاخیر زمانی: {voipTestResults['edit-form'].latencyMs} میلی‌ثانیه {voipTestResults['edit-form'].version ? `| نسخه: ${voipTestResults['edit-form'].version}` : ''}
                     </span>
                   </div>
                 </div>
