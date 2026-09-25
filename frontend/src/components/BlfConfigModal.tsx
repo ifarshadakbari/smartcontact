@@ -19,6 +19,7 @@ import { UserBlfPermission, Contact, LdapDomain, BlfState, User } from '../types
 import {
   getAllAvailableInternalExtensions,
   InternalExtensionMeta,
+  extractExtensionFromLandline,
 } from '../services/blfService';
 
 interface BlfConfigModalProps {
@@ -41,7 +42,7 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
   currentUser,
 }) => {
   const [localPermissions, setLocalPermissions] = useState<UserBlfPermission[]>(permissions);
-  const [selectedUserId, setSelectedUserId] = useState<number>(permissions[0]?.userId || 1);
+  const [selectedUserId, setSelectedUserId] = useState<number | string>(permissions[0]?.userId || 1);
   const [searchExtension, setSearchExtension] = useState('');
   const [userDomainFilter, setUserDomainFilter] = useState<string>('all');
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
@@ -72,6 +73,9 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
   React.useEffect(() => {
     if (isOpen) {
       setLocalPermissions(permissions);
+      if (permissions.length > 0 && (!selectedUserId || !permissions.some(p => String(p.userId) === String(selectedUserId)))) {
+        setSelectedUserId(permissions[0].userId);
+      }
     }
   }, [isOpen, permissions]);
 
@@ -80,86 +84,82 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
     return getAllAvailableInternalExtensions(allContacts, currentUser, ldapDomains);
   }, [allContacts, currentUser, ldapDomains]);
 
-  // Filter users to only real employees present in the company contacts or current admin
+  // Enrich user permissions without dropping any configured user
   const validUsers = useMemo(() => {
-    const internalContactsMap = new Map<number, Contact>(
-      allContacts
-        .filter((c) => c.contact_type === 'internal')
-        .map((c) => [c.id, c])
-    );
+    return localPermissions.map((p) => {
+      const isCurrentAdmin =
+        String(p.userId) === '1' ||
+        (currentUser && String(p.userId) === String(currentUser.id)) ||
+        p.role === 'admin';
 
-    return localPermissions
-      .filter((p) => {
-        // Admin / Current User is always valid
-        const isCurrentAdmin =
-          p.userId === 1 ||
-          (currentUser && p.userId === currentUser.id) ||
-          p.role === 'admin';
-        if (isCurrentAdmin) return true;
+      const domainObj = ldapDomains.find(
+        (d) =>
+          (p.domainId && String(d.id) === String(p.domainId)) ||
+          (p.domainName && (d.name === p.domainName || d.display_name === p.domainName))
+      ) || ldapDomains[0];
 
-        // Any other user must be an actual internal employee in allContacts
-        return internalContactsMap.has(p.userId);
-      })
-      .map((p) => {
-        const isCurrentAdmin =
-          p.userId === 1 ||
-          (currentUser && p.userId === currentUser.id) ||
-          p.role === 'admin';
+      const domainPersianTitle = formatDomainTitle(domainObj?.id || p.domainId, domainObj?.name || p.domainName);
 
-        const domainObj = ldapDomains.find(
-          (d) =>
-            (p.domainId && String(d.id) === String(p.domainId)) ||
-            (p.domainName && (d.name === p.domainName || d.display_name === p.domainName))
-        ) || ldapDomains[0];
+      const realMonitored = p.monitoredExtensions || [];
 
-        const domainPersianTitle = formatDomainTitle(domainObj?.id || p.domainId, domainObj?.name || p.domainName);
-
-        const realMonitored = p.monitoredExtensions || [];
-
-        if (isCurrentAdmin) {
-          const adminName = currentUser?.name
-            ? `${currentUser.name} (مدیر سیستم)`
-            : 'مدیر سیستم';
-          return {
-            ...p,
-            userName: adminName,
-            department: currentUser?.department || p.department || 'فناوری اطلاعات و زیرساخت',
-            domainId: domainObj?.id || p.domainId || '1',
-            domainName: domainPersianTitle,
-            monitoredExtensions: realMonitored,
-            canViewBlf: true,
-          };
-        }
-
-        // Real contact: sync name, department, and domain directly from real contact record
-        const contact = internalContactsMap.get(p.userId);
-        if (contact) {
-          const cDomain = ldapDomains.find((d) => String(d.id) === String(contact.domain_id)) || domainObj;
-          const cDomainPersianTitle = formatDomainTitle(cDomain?.id || contact.domain_id, cDomain?.name || contact.domain_name);
-          return {
-            ...p,
-            userName: `${contact.first_name} ${contact.last_name}`,
-            department: contact.department || p.department,
-            domainId: contact.domain_id || domainObj?.id || '1',
-            domainName: cDomainPersianTitle,
-            canViewBlf: p.canViewBlf !== false && (Boolean(p.canViewBlf) || realMonitored.length > 0 || Boolean(p.canViewAll)),
-            monitoredExtensions: realMonitored,
-          };
-        }
-
+      if (isCurrentAdmin) {
+        const adminName = currentUser?.name
+          ? `${currentUser.name} (مدیر سیستم)`
+          : (p.userName || 'مدیر سیستم');
         return {
           ...p,
+          userName: adminName,
+          department: currentUser?.department || p.department || 'فناوری اطلاعات و زیرساخت',
+          domainId: domainObj?.id || p.domainId || '1',
           domainName: domainPersianTitle,
+          monitoredExtensions: realMonitored,
+          canViewBlf: true,
+        };
+      }
+
+      // Find contact if available to enrich details
+      const contact = allContacts.find((c) =>
+        String(c.id) === String(p.userId) ||
+        (p.contactId && String(c.id) === String(p.contactId)) ||
+        (p.userUsername && c.ldap_username && p.userUsername.toLowerCase() === c.ldap_username.toLowerCase()) ||
+        (p.userEmail && c.email && p.userEmail.toLowerCase() === c.email.toLowerCase()) ||
+        (p.personnelCode && c.personnel_code && p.personnelCode === c.personnel_code) ||
+        (p.userName && `${c.first_name || ''} ${c.last_name || ''}`.trim() === p.userName.trim())
+      );
+
+      if (contact) {
+        const cDomain = ldapDomains.find((d) => String(d.id) === String(contact.domain_id)) || domainObj;
+        const cDomainPersianTitle = formatDomainTitle(cDomain?.id || contact.domain_id, cDomain?.name || contact.domain_name);
+        const cExt = (contact.landlines ? contact.landlines.map(extractExtensionFromLandline).find((x): x is string => Boolean(x)) || '' : '') as string;
+        return {
+          ...p,
+          userName: `${contact.first_name} ${contact.last_name}`.trim() || p.userName,
+          userUsername: contact.ldap_username || p.userUsername,
+          userEmail: contact.email || p.userEmail,
+          userExtension: cExt || p.userExtension || '',
+          personnelCode: contact.personnel_code || p.personnelCode,
+          contactId: contact.id,
+          department: contact.department || p.department,
+          domainId: contact.domain_id || domainObj?.id || '1',
+          domainName: cDomainPersianTitle,
           canViewBlf: p.canViewBlf !== false && (Boolean(p.canViewBlf) || realMonitored.length > 0 || Boolean(p.canViewAll)),
           monitoredExtensions: realMonitored,
         };
-      });
+      }
+
+      return {
+        ...p,
+        domainName: domainPersianTitle,
+        canViewBlf: p.canViewBlf !== false && (Boolean(p.canViewBlf) || realMonitored.length > 0 || Boolean(p.canViewAll)),
+        monitoredExtensions: realMonitored,
+      };
+    });
   }, [localPermissions, allContacts, currentUser, ldapDomains, formatDomainTitle]);
 
   // Current selected user's permission
   const currentUserPerm = useMemo(() => {
     return (
-      validUsers.find((p) => p.userId === selectedUserId) ||
+      validUsers.find((p) => String(p.userId) === String(selectedUserId)) ||
       validUsers[0] ||
       null
     );
@@ -226,22 +226,23 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
 
   // Candidates for adding new users to BLF (internal contacts not yet in validUsers)
   const availableCandidateContacts = useMemo(() => {
-    const existingIds = new Set(validUsers.map((p) => p.userId));
+    const existingIds = new Set(validUsers.map((p) => String(p.userId)));
+    const existingContactIds = new Set(validUsers.map((p) => (p.contactId ? String(p.contactId) : '')).filter(Boolean));
     return allContacts.filter(
-      (c) => c.contact_type === 'internal' && !existingIds.has(c.id)
+      (c) => c.contact_type === 'internal' && !existingIds.has(String(c.id)) && !existingContactIds.has(String(c.id))
     );
   }, [allContacts, validUsers]);
 
-  const handleToggleUserBlf = (userId: number, canView: boolean) => {
+  const handleToggleUserBlf = (userId: number | string, canView: boolean) => {
     setLocalPermissions((prev) =>
-      prev.map((p) => (p.userId === userId ? { ...p, canViewBlf: canView } : p))
+      prev.map((p) => (String(p.userId) === String(userId) ? { ...p, canViewBlf: canView } : p))
     );
   };
 
-  const handleToggleExtension = (userId: number, ext: string) => {
+  const handleToggleExtension = (userId: number | string, ext: string) => {
     setLocalPermissions((prev) =>
       prev.map((p) => {
-        if (p.userId !== userId) return p;
+        if (String(p.userId) !== String(userId)) return p;
         const exists = p.monitoredExtensions.includes(ext);
         const updatedList = exists
           ? p.monitoredExtensions.filter((e) => e !== ext)
@@ -255,34 +256,54 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
     );
   };
 
-  const handleSelectAllExtensionsForDomain = (userId: number) => {
+  const handleSelectAllExtensionsForDomain = (userId: number | string) => {
     const allDomainExts = allowedExtensionsForCurrentDomain.map((e) => e.extension);
     setLocalPermissions((prev) =>
       prev.map((p) =>
-        p.userId === userId
+        String(p.userId) === String(userId)
           ? { ...p, monitoredExtensions: allDomainExts, canViewBlf: true }
           : p
       )
     );
   };
 
-  const handleClearAllExtensions = (userId: number) => {
+  const handleClearAllExtensions = (userId: number | string) => {
     setLocalPermissions((prev) =>
-      prev.map((p) => (p.userId === userId ? { ...p, monitoredExtensions: [] } : p))
+      prev.map((p) => (String(p.userId) === String(userId) ? { ...p, monitoredExtensions: [] } : p))
     );
   };
 
   const handleAddUserFromContact = () => {
     if (!selectedNewContactId) return;
-    const target = allContacts.find((c) => c.id === Number(selectedNewContactId) || c.id === selectedNewContactId);
+    const target = allContacts.find((c) => String(c.id) === String(selectedNewContactId));
     if (!target) return;
+
+    // Check if user already exists
+    const existing = localPermissions.find(
+      (p) =>
+        String(p.userId) === String(target.id) ||
+        (p.contactId && String(p.contactId) === String(target.id)) ||
+        (target.ldap_username && p.userUsername && p.userUsername.toLowerCase() === target.ldap_username.toLowerCase())
+    );
+    if (existing) {
+      setSelectedUserId(existing.userId);
+      setIsAddUserOpen(false);
+      setSelectedNewContactId('');
+      return;
+    }
 
     const domainId = target.domain_id || '1';
     const domainObj = ldapDomains.find((d) => String(d.id) === String(domainId));
+    const targetExt = (target.landlines ? target.landlines.map(extractExtensionFromLandline).find((x): x is string => Boolean(x)) || '' : '') as string;
 
     const newPerm: UserBlfPermission = {
-      userId: typeof target.id === 'number' ? target.id : Date.now(),
-      userName: `${target.first_name} ${target.last_name}`,
+      userId: target.id,
+      contactId: target.id,
+      userName: `${target.first_name || ''} ${target.last_name || ''}`.trim() || target.company_name || 'کاربر سازمانی',
+      userUsername: target.ldap_username || '',
+      userEmail: target.email || '',
+      userExtension: targetExt,
+      personnelCode: target.personnel_code || '',
       role: 'staff',
       department: target.department || 'پرسنل سازمانی',
       domainId: String(domainId),
@@ -297,12 +318,12 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
     setIsAddUserOpen(false);
   };
 
-  const handleRemoveUser = (userId: number) => {
+  const handleRemoveUser = (userId: number | string) => {
     const isCurrentAdmin =
-      userId === 1 || (currentUser && userId === currentUser.id);
+      String(userId) === '1' || (currentUser && String(userId) === String(currentUser.id));
     if (isCurrentAdmin) return; // Protect admin
-    setLocalPermissions((prev) => prev.filter((p) => p.userId !== userId));
-    if (selectedUserId === userId) {
+    setLocalPermissions((prev) => prev.filter((p) => String(p.userId) !== String(userId)));
+    if (String(selectedUserId) === String(userId)) {
       setSelectedUserId(1);
     }
   };
