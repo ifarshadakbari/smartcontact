@@ -192,15 +192,28 @@ export const ContactTable: React.FC<ContactTableProps> = ({
                   <td className="py-3 px-3 text-center">
                     <button
                       type="button"
+                      disabled={!currentUser}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (!currentUser) return;
                         onToggleFavorite(contact.id);
                       }}
-                      className="text-neutral-300 hover:text-blue-600 transition cursor-pointer p-1"
+                      className={`p-1 transition ${
+                        !currentUser
+                          ? 'text-neutral-300 opacity-40 cursor-not-allowed'
+                          : 'text-neutral-300 hover:text-blue-600 cursor-pointer'
+                      }`}
+                      title={
+                        !currentUser
+                          ? 'برای نشان‌گذاری مخاطبین ابتدا وارد حساب کاربری شوید'
+                          : contact.is_favorite
+                          ? 'حذف از نشان‌شده‌ها'
+                          : 'افزودن به نشان‌شده‌ها'
+                      }
                     >
                       <Star
                         className={`w-3.5 h-3.5 ${
-                          contact.is_favorite
+                          contact.is_favorite && currentUser
                             ? 'fill-blue-600 text-blue-600'
                             : 'stroke-[1.5]'
                         }`}
