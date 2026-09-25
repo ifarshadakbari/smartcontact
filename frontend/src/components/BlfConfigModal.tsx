@@ -116,10 +116,15 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
 
         // Real internal extensions available in allContacts for this user's domain
         const realDomainExts = allAvailableExtensions
-          .filter((e) =>
-            (domainObj && (e.domainId === domainObj.id || e.domainName === domainObj.name)) ||
-            e.domainName === domainPersianTitle
-          )
+          .filter((e) => {
+            if (!domainObj) return true;
+            return (
+              String(e.domainId) === String(domainObj.id) ||
+              e.domainName === domainObj.name ||
+              e.domainName === domainObj.display_name ||
+              e.domainName === domainPersianTitle
+            );
+          })
           .map((e) => e.extension);
 
         let realMonitored = p.monitoredExtensions.filter((ext) => realDomainExts.includes(ext));
@@ -191,15 +196,16 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
   // STRICT DOMAIN ISOLATION:
   // Internal extensions strictly belonging to the current user's domain!
   const allowedExtensionsForCurrentDomain = useMemo(() => {
-    if (!currentUserDomain) return [];
+    if (!currentUserDomain) return allAvailableExtensions;
     return allAvailableExtensions.filter((ext) => {
       return (
-        ext.domainId === currentUserDomain.id ||
+        String(ext.domainId) === String(currentUserDomain.id) ||
         ext.domainName === currentUserDomain.name ||
-        ext.domainName === currentUserDomain.display_name
+        ext.domainName === currentUserDomain.display_name ||
+        ext.domainName === formatDomainTitle(currentUserDomain.id, currentUserDomain.name)
       );
     });
-  }, [allAvailableExtensions, currentUserDomain]);
+  }, [allAvailableExtensions, currentUserDomain, formatDomainTitle]);
 
   // Filtered extensions for display (by search query)
   const displayedAllowedExtensions = useMemo(() => {
@@ -216,11 +222,13 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
   // Filtered users list by domain (ensuring test users are never shown in "all" or specific domains)
   const filteredUsers = useMemo(() => {
     if (userDomainFilter === 'all') return validUsers;
-    return validUsers.filter(
-      (p) =>
-        p.domainId === userDomainFilter ||
-        ldapDomains.find((d) => d.id === userDomainFilter)?.name === p.domainName
-    );
+    return validUsers.filter((p) => {
+      const matchDomain = ldapDomains.find((d) => String(d.id) === String(userDomainFilter));
+      return (
+        String(p.domainId) === String(userDomainFilter) ||
+        (matchDomain && (p.domainName === matchDomain.name || p.domainName === matchDomain.display_name))
+      );
+    });
   }, [validUsers, userDomainFilter, ldapDomains]);
 
   // Candidates for adding new users to BLF (internal contacts not yet in validUsers)
@@ -319,11 +327,13 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
 
       const validExts = perm.monitoredExtensions.filter((ext) => {
         const extMeta = allAvailableExtensions.find((e) => e.extension === ext);
-        if (!extMeta) return false;
+        if (!extMeta) return true; // Keep user's chosen extension
+        if (!userDomain) return true;
         return (
-          extMeta.domainId === userDomain?.id ||
-          extMeta.domainName === userDomain?.name ||
-          extMeta.domainName === userDomain?.display_name
+          String(extMeta.domainId) === String(userDomain.id) ||
+          extMeta.domainName === userDomain.name ||
+          extMeta.domainName === userDomain.display_name ||
+          extMeta.domainName === formatDomainTitle(userDomain.id, userDomain.name)
         );
       });
 
