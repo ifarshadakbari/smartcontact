@@ -462,18 +462,53 @@ Route::match(['get', 'post'], '/blf/states', function (Request $request) {
             }
         }
 
-        // ادغام تماس‌های فعال ثبت‌شده از طریق سامانه در کش
+        // ادغام تماس‌های ثبت‌شده در کش سامانه (تنها در صورت عدم اتصال AMI یا برای چند ثانیه اول آغاز تماس)
         $cacheKey = 'blf_live_states_' . ($domainId ?: 'all');
         $cachedCalls = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
+        $cacheUpdated = false;
+        $now = time();
+
         if (is_array($cachedCalls)) {
             foreach ($cachedCalls as $ext => $info) {
                 if (isset($info['state']) && $info['state'] === 'busy') {
-                    $states[$ext] = [
-                        'state' => 'busy',
-                        'durationSec' => isset($info['durationSec']) ? $info['durationSec'] : 1,
-                        'callerNumber' => $info['callerNumber'] ?? null,
-                    ];
+                    $createdAt = isset($info['timestamp']) ? (int)$info['timestamp'] : 0;
+                    $age = $createdAt > 0 ? ($now - $createdAt) : 999;
+
+                    if ($amiConnected) {
+                        // در صورتی که اتصال زنده AMI برقرار باشد:
+                        // وضعیت زنده استریسک معتبرترین منبع است.
+                        // تنها در صورتی که تماس زیر ۶ ثانیه پیش آغاز شده باشد (تاخیر ایجاد کانال در استریسک)، موقتاً حفظ می‌شود.
+                        if (isset($states[$ext]) && $states[$ext]['state'] !== 'busy') {
+                            if ($age <= 6) {
+                                $states[$ext] = [
+                                    'state' => 'busy',
+                                    'durationSec' => isset($info['durationSec']) ? $info['durationSec'] : 1,
+                                    'callerNumber' => $info['callerNumber'] ?? null,
+                                ];
+                            } else {
+                                // تماس در استریسک پایان یافته و خط آزاد است؛ کش بلافاصله پاک شود
+                                unset($cachedCalls[$ext]);
+                                $cacheUpdated = true;
+                            }
+                        }
+                    } else {
+                        // در صورت عدم دسترسی به AMI، حداکثر تا ۱۵ ثانیه در کش بماند
+                        if ($age <= 15) {
+                            $states[$ext] = [
+                                'state' => 'busy',
+                                'durationSec' => isset($info['durationSec']) ? $info['durationSec'] : 1,
+                                'callerNumber' => $info['callerNumber'] ?? null,
+                            ];
+                        } else {
+                            unset($cachedCalls[$ext]);
+                            $cacheUpdated = true;
+                        }
+                    }
                 }
+            }
+
+            if ($cacheUpdated) {
+                \Illuminate\Support\Facades\Cache::put($cacheKey, $cachedCalls, 25);
             }
         }
 
@@ -855,19 +890,22 @@ Route::post('/voip/originate', function (Request $request) {
         // ثبت در کش بلادرنگ خطوط جهت نمایش فوری وضعیت اشغالی در مانیتورینگ BLF
         $cacheKey = 'blf_live_states_' . ($domainId ?: 'all');
         $cached = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
+        $now = time();
         $cached[$callerExtension] = [
             'state' => 'busy',
             'durationSec' => 1,
             'callerNumber' => $targetNumber,
+            'timestamp' => $now,
         ];
         if (!empty($targetNumber) && strlen($targetNumber) <= 5 && !str_starts_with($targetNumber, '0')) {
             $cached[$targetNumber] = [
                 'state' => 'busy',
                 'durationSec' => 1,
                 'callerNumber' => $callerExtension,
+                'timestamp' => $now,
             ];
         }
-        \Illuminate\Support\Facades\Cache::put($cacheKey, $cached, 120);
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $cached, 25);
 
         return response()->json([
             'status' => 'success',
@@ -980,12 +1018,26 @@ Route::post('/voip/hangup', function (Request $request) {
     @fwrite($fp, "Action: Logoff\r\n\r\n");
     @fclose($fp);
 
-    // پاکسازی وضعیت اشغال از کش BLF
+    // پاکسازی وضعیت اشغال از کش BLF برای هر دو طرف تماس
     $cacheKey = 'blf_live_states_' . ($domainId ?: 'all');
     $cached = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
+    $modified = false;
     if (isset($cached[$callerExtension])) {
+        $targetExt = $cached[$callerExtension]['callerNumber'] ?? null;
         unset($cached[$callerExtension]);
-        \Illuminate\Support\Facades\Cache::put($cacheKey, $cached, 120);
+        if ($targetExt && isset($cached[$targetExt])) {
+            unset($cached[$targetExt]);
+        }
+        $modified = true;
+    }
+    foreach ($cached as $k => $v) {
+        if (($v['callerNumber'] ?? '') === $callerExtension || $k === $callerExtension) {
+            unset($cached[$k]);
+            $modified = true;
+        }
+    }
+    if ($modified) {
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $cached, 25);
     }
 
     return response()->json([
