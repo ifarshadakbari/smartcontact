@@ -229,16 +229,17 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                       value={callerExtension}
                       onChange={(e) => setCallerExtension(e.target.value)}
                       placeholder="مثلاً 205"
-                      className="w-24 px-2 py-1 text-xs font-mono font-bold bg-white border border-blue-400 rounded focus:outline-none focus:ring-1 focus:ring-blue-600"
+                      className="w-28 px-3 py-1.5 text-sm font-bold text-center bg-white border border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
                       dir="ltr"
                       autoFocus
                     />
                     <button
                       type="button"
                       onClick={() => setIsEditingExt(false)}
-                      className="p-1 bg-blue-600 text-white rounded hover:bg-blue-700 cursor-pointer"
+                      className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer shadow-2xs"
+                      title="تایید"
                     >
-                      <Check className="w-3.5 h-3.5" />
+                      <Check className="w-4 h-4" />
                     </button>
                     <button
                       type="button"
@@ -246,20 +247,19 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                         setCallerExtension(currentUser.extension || '205');
                         setIsEditingExt(false);
                       }}
-                      className="p-1 text-neutral-500 hover:text-neutral-700"
+                      className="p-1.5 text-neutral-500 hover:text-neutral-700 rounded-lg hover:bg-blue-100/50"
                       title="بازنشانی به داخلی اکتیودایرکتوری"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" />
+                      <RotateCcw className="w-4 h-4" />
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-mono font-black text-neutral-900 bg-white px-2.5 py-0.5 rounded border border-neutral-300 shadow-2xs" dir="ltr">
-                      داخلی {callerExtension}
-                    </span>
-                    <span className="text-[11px] text-neutral-500">
-                      (IP Phone روی میز شما)
-                    </span>
+                  <div className="mt-1">
+                    <div className="inline-flex items-center justify-center min-w-[130px] px-3.5 py-1.5 bg-white rounded-lg border border-blue-200 shadow-2xs text-center">
+                      <span className="text-sm font-bold text-blue-950 tracking-wide">
+                        داخلی <span className="font-extrabold text-blue-700">{callerExtension}</span>
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
