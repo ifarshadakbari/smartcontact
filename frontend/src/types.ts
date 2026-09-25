@@ -117,6 +117,7 @@ export interface ApiUsageStatus {
   isApproachingLimit: boolean;
   isRateLimited: boolean;
   resetTimeRemainingSec: number;
+  windowSizeSec?: number;
 }
 
 export type BlfState = 'idle' | 'busy' | 'offline' | 'ringing';

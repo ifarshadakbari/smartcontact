@@ -1,4 +1,5 @@
 import { Contact, LaravelConfig, User, LdapDomain, Department } from '../types';
+import { isAdminOnlyLandline } from '../utils/phoneUtils';
 
 const STORAGE_VERSION = 'v11';
 const STORAGE_KEY_CONFIG = 'enterprise_phonebook_laravel_config_${STORAGE_VERSION}';
@@ -365,7 +366,16 @@ export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Conta
       department: item.department || '',
       location: item.location || '',
       mobiles: Array.isArray(item.mobiles) ? item.mobiles : [],
-      landlines: Array.isArray(item.landlines) ? item.landlines : [],
+      landlines: Array.isArray(item.landlines)
+        ? item.landlines.map((l: any, idx: number) => ({
+            id: String(l?.id || idx + 1),
+            phone: String(l?.phone || '').trim(),
+            extension: String(l?.extension || '').trim(),
+            title: l?.title ? String(l.title).trim() : undefined,
+            type: l?.type ? String(l.type).trim() : undefined,
+            is_admin_only: isAdminOnlyLandline(l),
+          }))
+        : [],
       email: item.email || '',
       description: cleanDesc,
       avatar: item.avatar || '',
@@ -444,6 +454,7 @@ export const saveContactToApi = async (
           phone: String(l.phone || '').trim(),
           extension: String(l.extension || '').trim(),
           title: String(l.title || '').trim(),
+          is_admin_only: isAdminOnlyLandline(l),
         }))
     : [];
 

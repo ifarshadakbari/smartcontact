@@ -242,7 +242,15 @@ app.get('/api/contacts', (req, res) => {
     );
   }
 
-  res.json(list);
+  const isAdmin = authUserRole === 'admin';
+  const sanitized = list.map((c) => ({
+    ...c,
+    landlines: isAdmin
+      ? (c.landlines || [])
+      : (c.landlines || []).filter((l: any) => !l.is_admin_only && !l.is_confidential && !l.is_private && !l.admin_only),
+  }));
+
+  res.json(sanitized);
 });
 
 app.post('/api/contacts', (req, res) => {
@@ -282,7 +290,15 @@ app.get('/api/contacts/:id', (req, res) => {
   if (!contact) {
     return res.status(404).json({ error: 'مخاطب یافت نشد.' });
   }
-  res.json(contact);
+  const authUserRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+  const isAdmin = authUserRole === 'admin';
+  const sanitized = {
+    ...contact,
+    landlines: isAdmin
+      ? (contact.landlines || [])
+      : (contact.landlines || []).filter((l: any) => !l.is_admin_only && !l.is_confidential && !l.is_private && !l.admin_only),
+  };
+  res.json(sanitized);
 });
 
 app.put('/api/contacts/:id', (req, res) => {
@@ -516,7 +532,7 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use(vite.middlewares as any);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));

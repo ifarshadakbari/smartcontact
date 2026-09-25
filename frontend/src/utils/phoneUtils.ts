@@ -269,24 +269,73 @@ export function getLineBadgeType(title?: string | null): 'wireless' | 'remote' |
 }
 
 /**
+ * Detects if a landline or extension entry is flagged as private/confidential (Admin Only).
+ * Safely handles boolean, numeric (1/0), and string ('true'/'1') flags across various schemas.
+ */
+export function isAdminOnlyLandline(item?: any): boolean {
+  if (!item || typeof item !== 'object') return false;
+  return Boolean(
+    item.is_admin_only === true ||
+    item.is_admin_only === 1 ||
+    item.is_admin_only === '1' ||
+    item.is_admin_only === 'true' ||
+    item.is_confidential === true ||
+    item.is_confidential === 1 ||
+    item.is_confidential === '1' ||
+    item.is_confidential === 'true' ||
+    item.is_private === true ||
+    item.is_private === 1 ||
+    item.is_private === '1' ||
+    item.is_private === 'true' ||
+    item.admin_only === true ||
+    item.admin_only === 1 ||
+    item.admin_only === '1' ||
+    item.admin_only === 'true'
+  );
+}
+
+/**
  * Filters visible landlines for a contact based on Admin/Staff privacy permissions:
- * Lines marked as is_admin_only are hidden from non-admin users.
+ * Lines marked as is_admin_only / confidential are hidden from non-admin users and guests.
  */
 export function getVisibleLandlines(contact: Contact, currentUser: User | null): any[] {
-  const landlines = Array.isArray(contact.landlines) ? contact.landlines : [];
+  const landlines = Array.isArray(contact?.landlines) ? contact.landlines : [];
   const isAdmin = currentUser?.role === 'admin';
 
-  return landlines.filter((item) => {
-    if (!item) return false;
-    const hasData = Boolean(item.phone?.trim() || item.extension?.trim());
-    if (!hasData) return false;
+  return landlines
+    .map((item, idx) => {
+      if (!item || typeof item !== 'object') return null;
+      let phone = String(item.phone || '').trim();
+      let extension = String(item.extension || '').trim();
 
-    // If marked as admin only, hide for regular users and guests
-    if (item.is_admin_only && !isAdmin) {
-      return false;
-    }
-    return true;
-  });
+      // Normalize if only 'number' was provided
+      if (!phone && !extension && item.number) {
+        const num = String(item.number).trim();
+        if (num.length <= 4 && !num.startsWith('0')) {
+          extension = num;
+        } else {
+          phone = num;
+        }
+      }
+
+      if (!phone && !extension) return null;
+
+      const isConfidential = isAdminOnlyLandline(item);
+
+      // If marked as admin only or confidential, hide for regular users and guests
+      if (isConfidential && !isAdmin) {
+        return null;
+      }
+
+      return {
+        ...item,
+        id: String(item.id || idx + 1),
+        phone: phone || undefined,
+        extension: extension || undefined,
+        is_admin_only: isConfidential,
+      };
+    })
+    .filter(Boolean) as any[];
 }
 
 /**

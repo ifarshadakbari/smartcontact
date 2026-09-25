@@ -1,9 +1,11 @@
 import {
   Contact,
+  User,
   UserBlfPermission,
   BlfExtensionInfo,
   BlfState,
 } from '../types';
+import { isAdminOnlyLandline } from '../utils/phoneUtils';
 
 export interface InternalExtensionMeta {
   extension: string;
@@ -17,9 +19,13 @@ export interface InternalExtensionMeta {
 const STORAGE_KEY_BLF_PERMISSIONS = 'enterprise_phonebook_blf_permissions';
 const STORAGE_KEY_BLF_STATES = 'enterprise_phonebook_blf_states';
 
-export function getAllAvailableInternalExtensions(allContacts: Contact[]): InternalExtensionMeta[] {
+export function getAllAvailableInternalExtensions(
+  allContacts: Contact[],
+  currentUser?: User | null
+): InternalExtensionMeta[] {
   const result: InternalExtensionMeta[] = [];
   const seen = new Set<string>();
+  const isAdmin = currentUser?.role === 'admin';
 
   (allContacts || []).forEach((c) => {
     if (c.contact_type !== 'internal') return;
@@ -27,6 +33,9 @@ export function getAllAvailableInternalExtensions(allContacts: Contact[]): Inter
 
     if (Array.isArray(c.landlines)) {
       c.landlines.forEach((l) => {
+        if (!isAdmin && isAdminOnlyLandline(l)) {
+          return;
+        }
         const ext = (l.extension || '').trim();
         if (ext && !seen.has(ext)) {
           seen.add(ext);

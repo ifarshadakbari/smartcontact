@@ -64,7 +64,7 @@ import {
   calculateUsageStatus,
   recordApiCall,
 } from './services/rateLimitService';
-import { normalizeSearchText, normalizePhoneNumber, matchContactToDomain, deduplicateDepartments, isWirelessLine, getUserDomainId } from './utils/phoneUtils';
+import { normalizeSearchText, normalizePhoneNumber, matchContactToDomain, deduplicateDepartments, isWirelessLine, getUserDomainId, getVisibleLandlines } from './utils/phoneUtils';
 import { Navbar } from './components/Navbar';
 import { LoginPage } from './components/LoginPage';
 import { ContactCard } from './components/ContactCard';
@@ -874,8 +874,9 @@ export default function App() {
         const domName = normalizeSearchText(contact.domain_name || contact.domain || '');
         const compName = normalizeSearchText(contact.company_name || '');
 
+        const visibleLinesForSearch = getVisibleLandlines(contact, currentUser);
         const landlineTitles = normalizeSearchText(
-          (contact.landlines || [])
+          visibleLinesForSearch
             .map((l) => `${l.title || ''} ${l.type === 'cordless' ? 'بی سیم بیسیم' : ''} ${l.type === 'remote' ? 'ریموت دورکاری' : ''}`)
             .join(' ')
         );
@@ -883,7 +884,7 @@ export default function App() {
         const allText = `${fullName} ${role} ${dept} ${loc} ${emailStr} ${pCode} ${domName} ${compName} ${landlineTitles}`;
 
         const phonesRaw = [
-          ...(contact.landlines?.map((l) => `${l.phone} ${l.extension}`) || []),
+          ...visibleLinesForSearch.map((l) => `${l.phone || ''} ${l.extension || ''}`),
           ...(contact.mobiles || []),
         ].join(' ');
         const normalizedPhones = normalizePhoneNumber(phonesRaw);

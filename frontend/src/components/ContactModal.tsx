@@ -99,6 +99,7 @@ import {
   isRemoteLine,
   getNonWirelessTitle,
   getVisibleLandlines,
+  isAdminOnlyLandline,
   deduplicateDepartments,
   isContactVoipCallable,
 } from '../utils/phoneUtils';
@@ -263,15 +264,15 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                 phone,
                 extension,
                 title: l?.title ? String(l.title).trim() : '',
-                is_admin_only: Boolean(l?.is_admin_only),
+                is_admin_only: isAdminOnlyLandline(l),
               };
             })
           : [{ id: '1', phone: '', extension: '', title: '', is_admin_only: false }];
 
       if (!isAdmin) {
         // کاربران غیر ادمین نباید خطوط اختصاصی ادمین (is_admin_only) را مشاهده کنند
-        const visibleForNonAdmin = allNormalized.filter((l) => !l.is_admin_only);
-        const hiddenForAdmin = allNormalized.filter((l) => l.is_admin_only);
+        const visibleForNonAdmin = allNormalized.filter((l) => !isAdminOnlyLandline(l));
+        const hiddenForAdmin = allNormalized.filter((l) => isAdminOnlyLandline(l));
         setHiddenAdminLandlines(hiddenForAdmin);
         setLandlines(
           visibleForNonAdmin.length > 0
@@ -626,7 +627,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
           phone: String(l?.phone || l?.number || '').trim(),
           extension: String(l?.extension || '').trim(),
           title: l?.title ? String(l.title).trim() : undefined,
-          is_admin_only: isAdmin ? Boolean(l?.is_admin_only) : false,
+          is_admin_only: isAdmin ? isAdminOnlyLandline(l) : (isAdminOnlyLandline(l) || false),
         }))
         .filter((l) => l.phone !== '' || l.extension !== '');
 

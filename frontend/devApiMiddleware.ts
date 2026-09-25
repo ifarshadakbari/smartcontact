@@ -242,6 +242,16 @@ export function createApiMiddleware() {
   router.get('/contacts', (req, res) => {
     let list = [...contacts];
     const { department, search } = req.query;
+    const authUserId = req.headers['x-user-id'] ? Number(req.headers['x-user-id']) : null;
+    const userRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+    const isAdmin = userRole === 'admin';
+
+    // Role-based visibility for contacts
+    if (!authUserId) {
+      list = list.filter((c) => c.is_public !== false);
+    } else if (!isAdmin) {
+      list = list.filter((c) => c.is_public !== false || c.created_by_user_id === authUserId);
+    }
 
     if (department && department !== 'all') {
       list = list.filter((c) => c.department === department);
@@ -260,7 +270,15 @@ export function createApiMiddleware() {
       );
     }
 
-    res.json(list);
+    // Confidential / Admin-Only lines are hidden for non-admins and guests
+    const sanitized = list.map((c) => ({
+      ...c,
+      landlines: isAdmin
+        ? (c.landlines || [])
+        : (c.landlines || []).filter((l: any) => !l.is_admin_only && !l.is_confidential && !l.is_private && !l.admin_only),
+    }));
+
+    res.json(sanitized);
   });
 
   router.post('/contacts', (req, res) => {
@@ -310,7 +328,15 @@ export function createApiMiddleware() {
     if (!contact) {
       return res.status(404).json({ error: 'مخاطب یافت نشد.' });
     }
-    res.json(contact);
+    const userRole = req.headers['x-user-role'] ? String(req.headers['x-user-role']) : null;
+    const isAdmin = userRole === 'admin';
+    const sanitized = {
+      ...contact,
+      landlines: isAdmin
+        ? (contact.landlines || [])
+        : (contact.landlines || []).filter((l: any) => !l.is_admin_only && !l.is_confidential && !l.is_private && !l.admin_only),
+    };
+    res.json(sanitized);
   });
 
   router.put('/contacts/:id', (req, res) => {

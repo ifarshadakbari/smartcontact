@@ -15,7 +15,7 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
-    app.use(vite.middlewares);
+    app.use(vite.middlewares as any);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
