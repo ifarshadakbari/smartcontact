@@ -69,6 +69,16 @@ let blfPermissions: any[] = [
   },
 ];
 
+let blfStatesMap: Record<string, { state: 'idle' | 'busy' | 'offline' | 'ringing'; durationSec?: number; callerNumber?: string }> = {
+  '101': { state: 'idle', durationSec: 0 },
+  '102': { state: 'busy', durationSec: 42, callerNumber: '104' },
+  '103': { state: 'idle', durationSec: 0 },
+  '104': { state: 'busy', durationSec: 42, callerNumber: '102' },
+  '105': { state: 'offline', durationSec: 0 },
+  '201': { state: 'idle', durationSec: 0 },
+  '202': { state: 'idle', durationSec: 0 },
+};
+
 let contacts: any[] = [
   {
     id: 1,
@@ -660,13 +670,93 @@ export function createApiMiddleware() {
     });
   });
 
+  // BLF Extension States (Live Busy Lamp Field states via PBX AMI)
+  router.post('/blf/states', (req, res) => {
+    const { extensions } = req.body;
+    const requested = Array.isArray(extensions) ? extensions : [];
+    const result: Record<string, any> = {};
+
+    requested.forEach((ext: string) => {
+      const cleanExt = String(ext).trim();
+      if (blfStatesMap[cleanExt]) {
+        if (blfStatesMap[cleanExt].state === 'busy') {
+          blfStatesMap[cleanExt].durationSec = (blfStatesMap[cleanExt].durationSec || 0) + 3;
+        }
+        result[cleanExt] = blfStatesMap[cleanExt];
+      } else {
+        result[cleanExt] = { state: 'idle', durationSec: 0 };
+      }
+    });
+
+    res.json({
+      status: 'success',
+      data: result,
+    });
+  });
+
+  router.post('/blf/toggle-state', (req, res) => {
+    const { extension, state } = req.body;
+    const cleanExt = String(extension || '').trim();
+    if (cleanExt) {
+      const targetState = state || (blfStatesMap[cleanExt]?.state === 'busy' ? 'idle' : 'busy');
+      blfStatesMap[cleanExt] = {
+        state: targetState,
+        durationSec: targetState === 'busy' ? 1 : 0,
+      };
+    }
+    res.json({ status: 'success', data: blfStatesMap });
+  });
+
   // VoIP
   router.post('/voip/originate', (req, res) => {
-    const { target_number } = req.body;
+    const { target_number, caller_extension } = req.body;
+    const cleanCaller = String(caller_extension || '').trim();
+    const cleanTarget = String(target_number || '').trim();
+
+    if (cleanCaller) {
+      blfStatesMap[cleanCaller] = {
+        state: 'busy',
+        durationSec: 1,
+        callerNumber: cleanTarget,
+      };
+    }
+    if (cleanTarget && cleanTarget.length <= 5 && !cleanTarget.startsWith('0')) {
+      blfStatesMap[cleanTarget] = {
+        state: 'busy',
+        durationSec: 1,
+        callerNumber: cleanCaller,
+      };
+    }
+
     res.json({
       success: true,
-      message: `دستور تماس به سرور ایزابل ارسال شد. تلفن رومیزی در حال زنگ خوردن است. به محض پاسخ، تماس با شماره ${target_number} برقرار خواهد شد.`,
+      message: `دستور تماس به سرور ایزابل ارسال شد. تلفن رومیزی در حال زنگ خوردن است. به محض پاسخ، تماس با شماره ${cleanTarget} برقرار خواهد شد.`,
       callId: `call-${Date.now()}`,
+    });
+  });
+
+  router.post('/voip/hangup', (req, res) => {
+    const { caller_extension } = req.body;
+    const cleanCaller = String(caller_extension || '').trim();
+    if (cleanCaller && blfStatesMap[cleanCaller]) {
+      blfStatesMap[cleanCaller] = {
+        state: 'idle',
+        durationSec: 0,
+      };
+    }
+    res.json({
+      success: true,
+      message: 'دستور قطع تماس به مرکز تلفن ارسال شد.',
+    });
+  });
+
+  router.post('/voip/channel-status', (req, res) => {
+    const { caller_extension } = req.body;
+    const cleanExt = String(caller_extension || '').trim();
+    const isBusy = blfStatesMap[cleanExt]?.state === 'busy';
+    res.json({
+      active: isBusy,
+      duration: blfStatesMap[cleanExt]?.durationSec || 0,
     });
   });
 
