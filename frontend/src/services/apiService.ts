@@ -327,13 +327,13 @@ export const originateVoipCall = async (params: {
     if (res.ok && json.status === 'success') {
       return {
         success: true,
-        message: json.message || `دستور Originate به سرور ایزابل ارسال شد. گوشی رومیزی شما (${params.callerExtension}) زنگ می‌خورد.`,
+        message: json.message || `دستور برقراری تماس به سرور VoIP ارسال شد. گوشی رومیزی شما (${params.callerExtension}) زنگ می‌خورد.`,
         callId: json.callId || `call-${Date.now()}`,
       };
     } else {
       return {
         success: false,
-        message: json.message || `خطا در ارسال دستور تماس به سرور ایزابل (${res.status})`,
+        message: json.message || `خطا در ارسال دستور تماس به سرور VoIP (${res.status})`,
         callId: '',
       };
     }
