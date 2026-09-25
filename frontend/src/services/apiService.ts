@@ -231,50 +231,119 @@ export const testLdapConnection = async (domain: LdapDomain, config?: LaravelCon
   }
 };
 
-// Simulate testing Issabel / Asterisk AMI connectivity
+// Real testing of Issabel / Asterisk AMI connectivity via Backend Proxy
 export const testVoipAmiConnection = async (domain: LdapDomain): Promise<{ success: boolean; message: string; latencyMs: number; version?: string }> => {
   const start = Date.now();
-  await new Promise((r) => setTimeout(r, 500 + Math.random() * 300));
-  const latency = Math.round(Date.now() - start);
 
-  if (!domain.voip_server_host) {
+  if (!domain.voip_server_host || !domain.voip_server_host.trim()) {
     return {
       success: false,
-      message: 'آدرس سرور ایزابل (IP / Host) تعیین نشده است.',
-      latencyMs: latency,
+      message: 'آدرس سرور ایزابل (IP یا Hostname) تعیین نشده است.',
+      latencyMs: 0,
     };
   }
 
-  const port = domain.voip_ami_port || 5038;
-  const user = domain.voip_ami_username || 'phonebook_ami';
+  const laravelCfg = getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/domains/test-voip`;
 
-  return {
-    success: true,
-    message: `اتصال موفق به سرویس AMI ایزابل (Asterisk 18/20) در ${domain.voip_server_host}:${port} با کاربر ${user} تایید شد (Authentication Accepted).`,
-    latencyMs: latency,
-    version: 'Asterisk Call Manager/5.0.3 (Issabel VoIP)',
-  };
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        domain_id: domain.id,
+        host: domain.voip_server_host.trim(),
+        port: domain.voip_ami_port || 5038,
+        username: domain.voip_ami_username ? domain.voip_ami_username.trim() : 'phonebook_ami',
+        secret: domain.voip_ami_secret !== undefined ? domain.voip_ami_secret : '',
+      }),
+    });
+
+    const latency = Math.round(Date.now() - start);
+    const json = await res.json().catch(() => ({}));
+
+    if (res.ok && json.status === 'success') {
+      return {
+        success: true,
+        message: json.message || `اتصال موفق به سرویس AMI ایزابل با کاربر ${domain.voip_ami_username} تایید شد.`,
+        latencyMs: json.latencyMs || latency,
+        version: json.version,
+      };
+    } else {
+      return {
+        success: false,
+        message: json.message || `خطا در برقراری ارتباط با سرور ایزابل (کد وضعیت: ${res.status})`,
+        latencyMs: json.latencyMs || latency,
+      };
+    }
+  } catch (e: any) {
+    const latency = Math.round(Date.now() - start);
+    return {
+      success: false,
+      message: `خطای اتصال به سرور جهت تست VoIP: ${e?.message || 'عدم دسترسی به سرور یا شبکه'}`,
+      latencyMs: latency,
+    };
+  }
 };
 
-// Initiate Click-to-Call (Originate)
+// Real Initiate Click-to-Call (Originate) via Backend Proxy
 export const originateVoipCall = async (params: {
   targetNumber: string;
   targetName?: string;
   callerExtension: string;
   domain: LdapDomain;
 }): Promise<{ success: boolean; message: string; callId: string }> => {
-  await new Promise((r) => setTimeout(r, 700));
+  const laravelCfg = getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/voip/originate`;
 
-  const host = params.domain.voip_server_host || '192.168.10.25';
-  const tech = params.domain.voip_channel_tech || 'SIP';
-  const channel = `${tech}/${params.callerExtension}`;
-  const callId = `call-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        caller_extension: params.callerExtension,
+        target_number: params.targetNumber,
+        target_name: params.targetName,
+        domain_id: params.domain.id,
+        host: params.domain.voip_server_host,
+        port: params.domain.voip_ami_port || 5038,
+        username: params.domain.voip_ami_username,
+        secret: params.domain.voip_ami_secret,
+        context: params.domain.voip_context || 'from-internal',
+        channel_tech: params.domain.voip_channel_tech || 'SIP',
+        auto_answer: params.domain.voip_auto_answer ?? true,
+      }),
+    });
 
-  return {
-    success: true,
-    message: `دستور Originate به سرور ایزابل (${host}) ارسال شد. گوشی رومیزی شما (${channel}) زنگ می‌خورد؛ به محض برداشتن گوشی، تماس با ${params.targetName || params.targetNumber} متصل خواهد شد.`,
-    callId,
-  };
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json.status === 'success') {
+      return {
+        success: true,
+        message: json.message || `دستور Originate به سرور ایزابل ارسال شد. گوشی رومیزی شما (${params.callerExtension}) زنگ می‌خورد.`,
+        callId: json.callId || `call-${Date.now()}`,
+      };
+    } else {
+      return {
+        success: false,
+        message: json.message || `خطا در ارسال دستور تماس به سرور ایزابل (${res.status})`,
+        callId: '',
+      };
+    }
+  } catch (e: any) {
+    return {
+      success: false,
+      message: `خطای برقراری ارتباط با وب‌سرویس تماس: ${e?.message || 'عدم دسترسی به سرور'}`,
+      callId: '',
+    };
+  }
 };
 
 // Test connection to Laravel
