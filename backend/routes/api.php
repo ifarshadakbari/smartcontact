@@ -132,9 +132,16 @@ Route::get('/blf/permissions', function () {
                 $table->boolean('can_view_blf')->default(false);
                 $table->boolean('can_view_all')->default(false);
                 $table->json('monitored_extensions')->nullable();
+                $table->json('extra_data')->nullable();
                 $table->string('role', 30)->default('staff');
                 $table->timestamps();
             });
+        } elseif (!\Illuminate\Support\Facades\Schema::hasColumn('blf_permissions', 'extra_data')) {
+            try {
+                \Illuminate\Support\Facades\Schema::table('blf_permissions', function (\Illuminate\Database\Schema\Blueprint $table) {
+                    $table->json('extra_data')->nullable();
+                });
+            } catch (\Throwable $e) {}
         }
 
         $records = DB::table('blf_permissions')->get();
@@ -147,7 +154,12 @@ Route::get('/blf/permissions', function () {
                 }
             }
 
-            return [
+            $extra = [];
+            if (isset($r->extra_data) && !empty($r->extra_data)) {
+                $extra = is_string($r->extra_data) ? json_decode($r->extra_data, true) : (array)$r->extra_data;
+            }
+
+            return array_merge([
                 'userId' => (int)$r->user_id,
                 'userName' => $r->user_name ?: 'کاربر سامانه',
                 'department' => $r->department ?: '',
@@ -157,7 +169,7 @@ Route::get('/blf/permissions', function () {
                 'canViewAll' => (bool)$r->can_view_all,
                 'monitoredExtensions' => $exts,
                 'role' => $r->role ?: 'staff',
-            ];
+            ], is_array($extra) ? $extra : []);
         });
 
         return response()->json([
@@ -182,9 +194,16 @@ Route::post('/blf/permissions', function (Request $request) {
                 $table->boolean('can_view_blf')->default(false);
                 $table->boolean('can_view_all')->default(false);
                 $table->json('monitored_extensions')->nullable();
+                $table->json('extra_data')->nullable();
                 $table->string('role', 30)->default('staff');
                 $table->timestamps();
             });
+        } elseif (!\Illuminate\Support\Facades\Schema::hasColumn('blf_permissions', 'extra_data')) {
+            try {
+                \Illuminate\Support\Facades\Schema::table('blf_permissions', function (\Illuminate\Database\Schema\Blueprint $table) {
+                    $table->json('extra_data')->nullable();
+                });
+            } catch (\Throwable $e) {}
         }
 
         $permissions = $request->input('permissions', []);
@@ -206,6 +225,14 @@ Route::post('/blf/permissions', function (Request $request) {
             $canViewBlf = isset($p['canViewBlf']) ? (bool)$p['canViewBlf'] : (isset($p['can_view_blf']) ? (bool)$p['can_view_blf'] : false);
             $canViewAll = isset($p['canViewAll']) ? (bool)$p['canViewAll'] : (isset($p['can_view_all']) ? (bool)$p['can_view_all'] : false);
 
+            $extra = [
+                'userUsername' => $p['userUsername'] ?? ($p['user_username'] ?? ''),
+                'userEmail' => $p['userEmail'] ?? ($p['user_email'] ?? ''),
+                'userExtension' => $p['userExtension'] ?? ($p['user_extension'] ?? ''),
+                'personnelCode' => $p['personnelCode'] ?? ($p['personnel_code'] ?? ''),
+                'contactId' => $p['contactId'] ?? ($p['contact_id'] ?? $userId),
+            ];
+
             $data = [
                 'user_name' => $p['userName'] ?? ($p['user_name'] ?? ''),
                 'department' => $p['department'] ?? '',
@@ -217,6 +244,10 @@ Route::post('/blf/permissions', function (Request $request) {
                 'role' => $p['role'] ?? 'staff',
                 'updated_at' => now(),
             ];
+
+            if (\Illuminate\Support\Facades\Schema::hasColumn('blf_permissions', 'extra_data')) {
+                $data['extra_data'] = json_encode($extra);
+            }
 
             $exists = DB::table('blf_permissions')->where('user_id', $userId)->first();
             if ($exists) {
