@@ -383,7 +383,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
   const handleToggleFavoriteInModal = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!contact || !onToggleFavorite) return;
+    if (!contact || !onToggleFavorite || !currentUser) return;
     setIsFavorite((prev) => !prev);
     onToggleFavorite(contact.id);
   };
@@ -744,17 +744,26 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               <button
                 type="button"
                 id="modal-favorite-toggle-btn"
-                onClick={handleToggleFavoriteInModal}
-                className={`p-2 rounded-lg transition-all duration-150 cursor-pointer flex items-center justify-center ${
-                  isFavorite
-                    ? 'text-blue-600 bg-blue-50/80 hover:bg-blue-100 hover:text-blue-700'
-                    : 'text-neutral-400 hover:text-blue-600 hover:bg-neutral-100'
+                disabled={!currentUser}
+                onClick={currentUser ? handleToggleFavoriteInModal : undefined}
+                className={`p-2 rounded-lg transition-all duration-150 flex items-center justify-center ${
+                  !currentUser
+                    ? 'text-neutral-300 opacity-40 cursor-not-allowed'
+                    : isFavorite
+                    ? 'text-blue-600 bg-blue-50/80 hover:bg-blue-100 hover:text-blue-700 cursor-pointer'
+                    : 'text-neutral-400 hover:text-blue-600 hover:bg-neutral-100 cursor-pointer'
                 }`}
-                title={isFavorite ? 'حذف از نشان‌شده‌ها' : 'افزودن به نشان‌شده‌ها'}
+                title={
+                  !currentUser
+                    ? 'برای نشان‌گذاری مخاطبین ابتدا وارد حساب کاربری شوید'
+                    : isFavorite
+                    ? 'حذف از نشان‌شده‌ها'
+                    : 'افزودن به نشان‌شده‌ها'
+                }
               >
                 <Star
                   className={`w-4 h-4 transition-transform active:scale-90 ${
-                    isFavorite
+                    isFavorite && currentUser
                       ? 'fill-blue-600 text-blue-600'
                       : 'stroke-[1.75]'
                   }`}
