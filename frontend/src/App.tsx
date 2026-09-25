@@ -95,6 +95,10 @@ export default function App() {
   const [apiUsageStatus, setApiUsageStatus] = useState<ApiUsageStatus>(() => calculateUsageStatus());
 
   useEffect(() => {
+    document.title = 'پُــرسا لینک';
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = subscribeToApiUsage((status) => {
       setApiUsageStatus(status);
     });
@@ -1715,7 +1719,7 @@ export default function App() {
       <footer className="border-t border-neutral-200 bg-white py-4 mt-12 text-xs text-neutral-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
-            سیستم جامع اطلاعات و ارتباطات سازمانی © {new Date().getFullYear()} امور فناوری اطلاعات و توسعه سیستم ها
+            پُــرسا لینک © {new Date().getFullYear()} امور فناوری اطلاعات و توسعه سیستم‌ها
           </div>
           <div className="flex items-center gap-4">
             {currentUser?.role === 'admin' && (

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Printer, ArrowRight, LayoutGrid, FileText, Columns2, Columns3 } from 'lucide-react';
 import { Contact, LdapDomain, User } from '../types';
 import { getDomainDisplayName, isWirelessLine, isRemoteLine, getVisibleLandlines } from '../utils/phoneUtils';
+import { PorsaLinkLogo } from './PorsaLinkLogo';
 
 interface PrintViewProps {
   contacts: Contact[];
@@ -157,15 +158,18 @@ export const PrintView: React.FC<PrintViewProps> = ({ contacts, ldapDomains, cur
       <div className="max-w-6xl mx-auto bg-white border border-neutral-300 rounded-xl p-6 sm:p-8 shadow-sm print:shadow-none print:border-none print:p-0 print:max-w-none print:w-full">
         {/* Document Header */}
         <div className="border-b-2 border-neutral-900 pb-3 mb-5 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg sm:text-xl font-black text-neutral-900">
-              سیستم جامع اطلاعات و ارتباطات سازمانی
-            </h1>
-            <p className="text-xs text-neutral-600 mt-1">
-              {printMode === 'compact'
-                ? `راهنمای سریع شماره‌های داخلی و خطوط ارتباطی سازمان (${columns} ستونه)`
-                : `راهنمای جامع اطلاعات و ارتباطات درون و برون سازمانی (${columns} ستونه)`}
-            </p>
+          <div className="flex items-center gap-3">
+            <PorsaLinkLogo className="w-10 h-10 shrink-0" />
+            <div>
+              <h1 className="text-lg sm:text-xl font-black text-neutral-900">
+                پُــرسا لینک
+              </h1>
+              <p className="text-xs text-neutral-600 mt-0.5">
+                {printMode === 'compact'
+                  ? `راهنمای سریع شماره‌های داخلی و خطوط ارتباطی سازمان (${columns} ستونه)`
+                  : `راهنمای جامع اطلاعات و ارتباطات درون و برون سازمانی (${columns} ستونه)`}
+              </p>
+            </div>
           </div>
           <div className="text-left text-xs text-neutral-600">
             <div>تاریخ چاپ: {new Date().toLocaleDateString('fa-IR')}</div>

@@ -16,6 +16,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react';
 import { User, LaravelConfig, LdapDomain } from '../types';
+import { PorsaLinkLogo } from './PorsaLinkLogo';
 
 interface NavbarProps {
   user: User | null;
@@ -87,15 +88,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center justify-between h-16">
           {/* Logo & System Name */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="w-9 h-9 rounded-lg bg-neutral-900 text-white flex items-center justify-center font-black shadow-xs shrink-0">
-              <Phone className="w-4 h-4 text-blue-500" />
-            </div>
+            <PorsaLinkLogo className="w-10 h-10 shrink-0 drop-shadow-xs" />
             <div>
-              <h1 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight whitespace-nowrap">
-                سیستم جامع اطلاعات و ارتباطات سازمانی
+              <h1 className="text-base sm:text-lg font-black text-neutral-900 tracking-tight whitespace-nowrap">
+                پُــرسا لینک
               </h1>
               <p className="text-[11px] text-neutral-500 hidden sm:block whitespace-nowrap">
-                راهنمای هوشمند اطلاعات و ارتباطات درون و برون سازمانی
+                سامانه هوشمند اطلاعات و ارتباطات سازمانی
               </p>
             </div>
           </div>

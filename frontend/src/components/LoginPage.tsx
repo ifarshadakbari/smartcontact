@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { User, LaravelConfig, LdapDomain } from '../types';
+import { PorsaLinkLogo } from './PorsaLinkLogo';
 
 interface LoginPageProps {
   onLoginSuccess: (user: User, remember?: boolean) => void;
@@ -201,13 +202,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           )}
 
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-              <Shield className="w-5 h-5" />
-            </div>
+            <PorsaLinkLogo className="w-11 h-11 shrink-0 drop-shadow-md" />
             <div>
-              <h2 className="text-base font-bold tracking-tight">ورود به سیستم</h2>
+              <h2 className="text-base font-bold tracking-tight">ورود به پُــرسا لینک</h2>
               <p className="text-xs text-neutral-400 mt-0.5">
-                احراز هویت مرکزی از طریق Active Directory / LDAP
+                سامانه هوشمند اطلاعات و ارتباطات سازمانی (LDAP / Active Directory)
               </p>
             </div>
           </div>
