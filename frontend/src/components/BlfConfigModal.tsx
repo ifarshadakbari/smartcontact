@@ -77,8 +77,8 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
 
   // All internal extensions across all domains
   const allAvailableExtensions = useMemo(() => {
-    return getAllAvailableInternalExtensions(allContacts);
-  }, [allContacts]);
+    return getAllAvailableInternalExtensions(allContacts, currentUser, ldapDomains);
+  }, [allContacts, currentUser, ldapDomains]);
 
   // Filter users to only real employees present in the company contacts or current admin
   const validUsers = useMemo(() => {
@@ -108,30 +108,13 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
 
         const domainObj = ldapDomains.find(
           (d) =>
-            (p.domainId && d.id === p.domainId) ||
+            (p.domainId && String(d.id) === String(p.domainId)) ||
             (p.domainName && (d.name === p.domainName || d.display_name === p.domainName))
         ) || ldapDomains[0];
 
         const domainPersianTitle = formatDomainTitle(domainObj?.id || p.domainId, domainObj?.name || p.domainName);
 
-        // Real internal extensions available in allContacts for this user's domain
-        const realDomainExts = allAvailableExtensions
-          .filter((e) => {
-            if (!domainObj) return true;
-            return (
-              String(e.domainId) === String(domainObj.id) ||
-              e.domainName === domainObj.name ||
-              e.domainName === domainObj.display_name ||
-              e.domainName === domainPersianTitle
-            );
-          })
-          .map((e) => e.extension);
-
-        let realMonitored = p.monitoredExtensions.filter((ext) => realDomainExts.includes(ext));
-
-        if (p.monitoredExtensions.length === 0 && realDomainExts.length > 0 && isCurrentAdmin) {
-          realMonitored = realDomainExts;
-        }
+        const realMonitored = p.monitoredExtensions || [];
 
         if (isCurrentAdmin) {
           const adminName = currentUser?.name
@@ -141,23 +124,25 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
             ...p,
             userName: adminName,
             department: currentUser?.department || p.department || 'فناوری اطلاعات و زیرساخت',
-            domainId: domainObj?.id || p.domainId || 'dom-1',
+            domainId: domainObj?.id || p.domainId || '1',
             domainName: domainPersianTitle,
             monitoredExtensions: realMonitored,
+            canViewBlf: true,
           };
         }
 
         // Real contact: sync name, department, and domain directly from real contact record
         const contact = internalContactsMap.get(p.userId);
         if (contact) {
-          const cDomain = ldapDomains.find((d) => d.id === contact.domain_id) || domainObj;
+          const cDomain = ldapDomains.find((d) => String(d.id) === String(contact.domain_id)) || domainObj;
           const cDomainPersianTitle = formatDomainTitle(cDomain?.id || contact.domain_id, cDomain?.name || contact.domain_name);
           return {
             ...p,
             userName: `${contact.first_name} ${contact.last_name}`,
             department: contact.department || p.department,
-            domainId: contact.domain_id || domainObj?.id || 'dom-1',
+            domainId: contact.domain_id || domainObj?.id || '1',
             domainName: cDomainPersianTitle,
+            canViewBlf: p.canViewBlf !== false && (Boolean(p.canViewBlf) || realMonitored.length > 0 || Boolean(p.canViewAll)),
             monitoredExtensions: realMonitored,
           };
         }
@@ -165,10 +150,11 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
         return {
           ...p,
           domainName: domainPersianTitle,
+          canViewBlf: p.canViewBlf !== false && (Boolean(p.canViewBlf) || realMonitored.length > 0 || Boolean(p.canViewAll)),
           monitoredExtensions: realMonitored,
         };
       });
-  }, [localPermissions, allContacts, currentUser, ldapDomains, allAvailableExtensions, formatDomainTitle]);
+  }, [localPermissions, allContacts, currentUser, ldapDomains, formatDomainTitle]);
 
   // Current selected user's permission
   const currentUserPerm = useMemo(() => {
@@ -186,26 +172,33 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
     return (
       ldapDomains.find(
         (d) =>
-          (userDomainId && d.id === userDomainId) ||
+          (userDomainId && String(d.id) === String(userDomainId)) ||
           (currentUserPerm.domainName &&
             (d.name === currentUserPerm.domainName || d.display_name === currentUserPerm.domainName))
       ) || ldapDomains[0] || null
     );
   }, [currentUserPerm, ldapDomains]);
 
-  // STRICT DOMAIN ISOLATION:
-  // Internal extensions strictly belonging to the current user's domain!
+  // Internal extensions strictly belonging to the current user's domain
   const allowedExtensionsForCurrentDomain = useMemo(() => {
     if (!currentUserDomain) return allAvailableExtensions;
+    const curDomId = String(currentUserDomain.id);
+    const curDomName = (currentUserDomain.name || '').toLowerCase();
+    const curDomDisplay = (currentUserDomain.display_name || '').toLowerCase();
+
     return allAvailableExtensions.filter((ext) => {
+      if (!ext.domainId && !ext.domainName) return true;
+      const extDomId = ext.domainId ? String(ext.domainId) : '';
+      const extDomName = (ext.domainName || '').toLowerCase();
       return (
-        String(ext.domainId) === String(currentUserDomain.id) ||
-        ext.domainName === currentUserDomain.name ||
-        ext.domainName === currentUserDomain.display_name ||
-        ext.domainName === formatDomainTitle(currentUserDomain.id, currentUserDomain.name)
+        extDomId === curDomId ||
+        extDomName === curDomName ||
+        extDomName === curDomDisplay ||
+        extDomName.includes(curDomName) ||
+        curDomName.includes(extDomName)
       );
     });
-  }, [allAvailableExtensions, currentUserDomain, formatDomainTitle]);
+  }, [allAvailableExtensions, currentUserDomain]);
 
   // Filtered extensions for display (by search query)
   const displayedAllowedExtensions = useMemo(() => {
@@ -246,12 +239,6 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
   };
 
   const handleToggleExtension = (userId: number, ext: string) => {
-    // Verify that this extension strictly belongs to the user's domain
-    const isBelongsToDomain = allowedExtensionsForCurrentDomain.some(
-      (e) => e.extension === ext
-    );
-    if (!isBelongsToDomain) return;
-
     setLocalPermissions((prev) =>
       prev.map((p) => {
         if (p.userId !== userId) return p;
@@ -259,7 +246,11 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
         const updatedList = exists
           ? p.monitoredExtensions.filter((e) => e !== ext)
           : [...p.monitoredExtensions, ext];
-        return { ...p, monitoredExtensions: updatedList };
+        return {
+          ...p,
+          monitoredExtensions: updatedList,
+          canViewBlf: updatedList.length > 0 ? true : p.canViewBlf,
+        };
       })
     );
   };
@@ -268,7 +259,9 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
     const allDomainExts = allowedExtensionsForCurrentDomain.map((e) => e.extension);
     setLocalPermissions((prev) =>
       prev.map((p) =>
-        p.userId === userId ? { ...p, monitoredExtensions: allDomainExts } : p
+        p.userId === userId
+          ? { ...p, monitoredExtensions: allDomainExts, canViewBlf: true }
+          : p
       )
     );
   };
@@ -284,15 +277,15 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
     const target = allContacts.find((c) => c.id === Number(selectedNewContactId) || c.id === selectedNewContactId);
     if (!target) return;
 
-    const domainId = target.domain_id || 'dom-1';
-    const domainObj = ldapDomains.find((d) => d.id === domainId);
+    const domainId = target.domain_id || '1';
+    const domainObj = ldapDomains.find((d) => String(d.id) === String(domainId));
 
     const newPerm: UserBlfPermission = {
       userId: typeof target.id === 'number' ? target.id : Date.now(),
       userName: `${target.first_name} ${target.last_name}`,
       role: 'staff',
       department: target.department || 'پرسنل سازمانی',
-      domainId: domainId,
+      domainId: String(domainId),
       domainName: domainObj?.display_name || formatDomainTitle(domainId, target.domain_name),
       canViewBlf: true,
       monitoredExtensions: [],
@@ -315,33 +308,22 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
   };
 
   const handleSave = () => {
-    // Sanitize before saving: enforce that every user's monitoredExtensions
-    // ONLY contains extensions from their respective domain, and only save valid real users!
     const sanitized = validUsers.map((perm) => {
       const userDomain = ldapDomains.find(
         (d) =>
-          d.id === perm.domainId ||
+          String(d.id) === String(perm.domainId) ||
           d.name === perm.domainName ||
           d.display_name === perm.domainName
       ) || ldapDomains[0];
 
-      const validExts = perm.monitoredExtensions.filter((ext) => {
-        const extMeta = allAvailableExtensions.find((e) => e.extension === ext);
-        if (!extMeta) return true; // Keep user's chosen extension
-        if (!userDomain) return true;
-        return (
-          String(extMeta.domainId) === String(userDomain.id) ||
-          extMeta.domainName === userDomain.name ||
-          extMeta.domainName === userDomain.display_name ||
-          extMeta.domainName === formatDomainTitle(userDomain.id, userDomain.name)
-        );
-      });
+      const validExts = perm.monitoredExtensions || [];
 
       return {
         ...perm,
-        domainId: userDomain?.id || perm.domainId || 'dom-1',
+        domainId: userDomain?.id || perm.domainId || '1',
         domainName: userDomain?.display_name || formatDomainTitle(perm.domainId, perm.domainName),
         monitoredExtensions: validExts,
+        canViewBlf: perm.canViewBlf !== false && (validExts.length > 0 || Boolean(perm.canViewBlf) || Boolean(perm.canViewAll)),
       };
     });
 
