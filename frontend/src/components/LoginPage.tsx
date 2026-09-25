@@ -206,7 +206,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <div>
               <h2 className="text-base font-bold tracking-tight">ورود به پُــرسا لینک</h2>
               <p className="text-xs text-neutral-400 mt-0.5">
-                سامانه هوشمند اطلاعات و ارتباطات سازمانی (LDAP / Active Directory)
+                سیستم هوشمند اطلاعات و ارتباطات درون و برون سازمانی (LDAP / Active Directory)
               </p>
             </div>
           </div>
