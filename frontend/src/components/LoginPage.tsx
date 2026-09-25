@@ -406,7 +406,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
       {/* Footer */}
       <footer className="text-center text-xs text-neutral-400 py-2">
-        <span>سیستم اطلاعات تماس سازمانی © {new Date().getFullYear()} - مبتنی بر LDAP / Active Directory و استریسک</span>
+        <span>سیستم اطلاعات تماس سازمانی © {new Date().getFullYear()} - مبتنی بر LDAP / Active Directory و سرور تلفنی VoIP</span>
       </footer>
     </div>
   );
