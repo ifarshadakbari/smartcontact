@@ -1,890 +1,1725 @@
-<?php
+import { Contact, LaravelConfig, User, LdapDomain, Department } from '../types';
+import { isAdminOnlyLandline } from '../utils/phoneUtils';
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\ContactController;
-use App\Http\Controllers\Api\DepartmentController;
-use App\Models\User;
+const STORAGE_VERSION = 'v11';
+const STORAGE_KEY_CONFIG = 'enterprise_phonebook_laravel_config_${STORAGE_VERSION}';
+const STORAGE_KEY_CONTACTS = 'enterprise_phonebook_contacts_${STORAGE_VERSION}';
+const STORAGE_KEY_AUTH = 'enterprise_phonebook_auth_user_${STORAGE_VERSION}';
+const STORAGE_KEY_DOMAINS = 'enterprise_phonebook_ldap_domains_${STORAGE_VERSION}';
+const STORAGE_KEY_DEPARTMENTS = 'enterprise_phonebook_departments_${STORAGE_VERSION}';
 
-/*
-|--------------------------------------------------------------------------
-| ۱. روت‌های دفترچه تلفن (مخاطبین)
-|--------------------------------------------------------------------------
-*/
-// روت نشان‌شده‌ها (Toggle Favorite) با پشتیبانی از Sanctum یا تشخیص هویت هدر
-Route::post('/contacts/{contact}/favorite', [ContactController::class, 'favorite']);
-Route::post('/contacts/{contact}/personal-mobiles', [ContactController::class, 'updatePersonalMobiles']);
 
-// روت‌های اصلی مدیریت مخاطبین
-Route::get('/contacts', [ContactController::class, 'index']);
-Route::post('/contacts', [ContactController::class, 'store']);
-Route::post('/contacts/reorder', [ContactController::class, 'reorder']);
-Route::get('/contacts/{contact}', [ContactController::class, 'show']);
-Route::put('/contacts/{contact}', [ContactController::class, 'update']);
-Route::delete('/contacts/{contact}', [ContactController::class, 'destroy']);
+export const getSavedLaravelConfig = (): LaravelConfig => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CONFIG);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error('Error reading laravel config', e);
+  }
 
-/*
-|--------------------------------------------------------------------------
-| ۲. دریافت دامنه‌های LDAP مستقیماً از جدول دیتابیس
-|--------------------------------------------------------------------------
-*/
-Route::get('/domains', function () {
-    try {
-        if (\Illuminate\Support\Facades\Schema::hasTable('ldap_domains')) {
-            $domains = DB::table('ldap_domains')->where('is_active', true)->get();
-            return response()->json($domains);
-        }
-        return response()->json([]);
-    } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
+  // Exact default backend URL configured for the enterprise database connection
+  return {
+    baseUrl: '/webapp/smartcontact/api',
+    apiPrefix: '',
+    token: '',
+    status: 'connected',
+  };
+};
+
+export const saveLaravelConfig = (config: LaravelConfig): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_CONFIG, JSON.stringify(config));
+  } catch (e) {
+    console.error('Error saving laravel config', e);
+  }
+};
+
+export const getStoredContacts = (): Contact[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CONTACTS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
     }
-});
+  } catch (e) {
+    console.error('Error reading contacts from storage', e);
+  }
+  return [];
+};
 
-/*
-|--------------------------------------------------------------------------
-| ۳. روت اختصاصی ادمین (دریافت تمام فیلدهای دامین)
-|--------------------------------------------------------------------------
-*/
-Route::get('/admin/domains', function () {
-    try {
-        if (\Illuminate\Support\Facades\Schema::hasTable('ldap_domains')) {
-            $domains = DB::table('ldap_domains')->get();
-            return response()->json(['status' => 'success', 'data' => $domains]);
-        }
-        return response()->json(['status' => 'success', 'data' => []]);
-    } catch (\Exception $e) {
-        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
-    }
-});
+export const saveStoredContacts = (contacts: Contact[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_CONTACTS, JSON.stringify(contacts));
+  } catch (e) {
+    console.error('Error saving contacts to storage', e);
+  }
+};
 
-/*
-|--------------------------------------------------------------------------
-| ۴. ذخیره و همگام‌سازی دامنه‌ها در دیتابیس
-|--------------------------------------------------------------------------
-*/
-Route::post('/domains/sync', function (Request $request) {
-    try {
-        $domains = $request->input('domains', []);
-        
-        foreach ($domains as $d) {
-            $name = trim($d['name'] ?? '');
-            if (empty($name)) continue;
+export const getStoredAuthUser = (): User | null => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_AUTH);
+    if (raw && raw !== 'null') return JSON.parse(raw);
+  } catch (e) {
+    console.error('Error reading auth user', e);
+  }
+  return null;
+};
 
-            $existing = DB::table('ldap_domains')->where('name', $name)->first();
-
-            $data = [
-                'name'              => $name,
-                'display_name'      => !empty($d['display_name']) ? $d['display_name'] : ($existing->display_name ?? $name),
-                'host'              => !empty($d['host']) ? $d['host'] : ($existing->host ?? ''),
-                'port'              => !empty($d['port']) ? (int)$d['port'] : ($existing->port ?? 389),
-                'base_dn'           => !empty($d['base_dn']) ? $d['base_dn'] : ($existing->base_dn ?? ''),
-                'encryption'        => !empty($d['encryption']) ? $d['encryption'] : ($existing->encryption ?? 'none'),
-                'bind_user'         => isset($d['bind_user']) && $d['bind_user'] !== '' ? $d['bind_user'] : ($existing->bind_user ?? null),
-                'user_filter'       => !empty($d['user_filter']) ? $d['user_filter'] : ($existing->user_filter ?? null),
-                'is_default'        => !empty($d['is_default']),
-                'is_active'         => isset($d['is_active']) ? (bool)$d['is_active'] : true,
-                'voip_enabled'      => !empty($d['voip_enabled']),
-                'voip_server_host'  => !empty($d['voip_server_host']) ? $d['voip_server_host'] : ($existing->voip_server_host ?? null),
-                'voip_ami_port'     => !empty($d['voip_ami_port']) ? (int)$d['voip_ami_port'] : ($existing->voip_ami_port ?? 5038),
-                'voip_ami_username' => !empty($d['voip_ami_username']) ? $d['voip_ami_username'] : ($existing->voip_ami_username ?? null),
-                'voip_context'      => !empty($d['voip_context']) ? $d['voip_context'] : ($existing->voip_context ?? 'from-internal'),
-                'voip_channel_tech' => !empty($d['voip_channel_tech']) ? $d['voip_channel_tech'] : ($existing->voip_channel_tech ?? 'SIP'),
-                'updated_at'        => now(),
-            ];
-
-            if (!empty($d['bind_password'])) {
-                $data['bind_password'] = $d['bind_password'];
-            }
-            if (!empty($d['voip_ami_secret'])) {
-                $data['voip_ami_secret'] = $d['voip_ami_secret'];
-            }
-
-            if ($existing) {
-                DB::table('ldap_domains')->where('id', $existing->id)->update($data);
-            } else {
-                $data['created_at'] = now();
-                DB::table('ldap_domains')->insert($data);
-            }
-        }
-
-        return response()->json(['status' => 'success', 'message' => 'دامین‌ها با موفقیت ذخیره شدند.']);
-    } catch (\Exception $e) {
-        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
-    }
-});
-
-/*
-|--------------------------------------------------------------------------
-| ۵. تست ارتباط واقعی با سرور اکتیودایرکتوری (پورت و سوکت شبکه)
-|--------------------------------------------------------------------------
-*/
-Route::post('/domains/test-ldap', function (Request $request) {
-    $host = trim($request->input('host', ''));
-    $port = (int)$request->input('port', 389);
-    $encryption = $request->input('encryption', 'none');
-    $bindUser = $request->input('bind_user', null);
-    $bindPassword = $request->input('bind_password', null);
-
-    if (empty($host)) {
-        return response()->json(['status' => 'error', 'message' => 'آدرس هاست یا IP دامین کنترلر الزامی است.'], 422);
-    }
-
-    $startTime = microtime(true);
-    $connectionTimeout = 3;
-    $fp = @fsockopen($host, $port, $errno, $errstr, $connectionTimeout);
-    if (!$fp) {
-        $latency = round((microtime(true) - $startTime) * 1000);
-        return response()->json([
-            'status' => 'error',
-            'message' => "عدم برقراری ارتباط شبکه با {$host}:{$port} - علت: {$errstr}",
-            'latencyMs' => $latency
-        ], 500);
-    }
-    fclose($fp);
-
-    if (function_exists('ldap_connect')) {
-        $ldapUri = ($encryption === 'ssl' || $port === 636) ? "ldaps://{$host}:{$port}" : "ldap://{$host}:{$port}";
-        $ldapConn = @ldap_connect($ldapUri);
-
-        if ($ldapConn) {
-            ldap_set_option($ldapConn, LDAP_OPT_PROTOCOL_VERSION, 3);
-            ldap_set_option($ldapConn, LDAP_OPT_REFERRALS, 0);
-            ldap_set_option($ldapConn, LDAP_OPT_NETWORK_TIMEOUT, 3);
-
-            if ($encryption === 'tls') {
-                @ldap_start_tls($ldapConn);
-            }
-
-            if (!empty($bindUser) && !empty($bindPassword)) {
-                $bind = @ldap_bind($ldapConn, $bindUser, $bindPassword);
-                $latency = round((microtime(true) - $startTime) * 1000);
-                if (!$bind) {
-                    $ldapError = ldap_error($ldapConn);
-                    return response()->json([
-                        'status' => 'error',
-                        'message' => "اتصال شبکه برقرار است اما اعتبار Bind DN ناموفق بود: {$ldapError}",
-                        'latencyMs' => $latency
-                    ], 401);
-                }
-            }
-            @ldap_close($ldapConn);
-        }
-    }
-
-    $latency = round((microtime(true) - $startTime) * 1000);
-    return response()->json([
-        'status' => 'success',
-        'message' => "اتصال به دامین کنترلر {$host}:{$port} با موفقیت برقرار شد.",
-        'latencyMs' => $latency
-    ]);
-});
-
-/*
-|--------------------------------------------------------------------------
-| ۵.۱. تست اتصال واقعی به سرور VoIP / Asterisk AMI ایزابل
-|--------------------------------------------------------------------------
-*/
-Route::post('/domains/test-voip', function (Request $request) {
-    $host = trim($request->input('host', ''));
-    $port = (int)$request->input('port', 5038);
-    $username = trim($request->input('username', ''));
-    $secret = $request->input('secret');
-    $domainId = $request->input('domain_id');
-
-    // اگر سکرت در درخواست نبود و domain_id ارسال شده بود، از دیتابیس بخواند
-    if (($secret === null || $secret === '') && !empty($domainId)) {
-        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
-        if ($savedDomain) {
-            $secret = $savedDomain->voip_ami_secret ?? '';
-            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
-            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
-            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
-        }
-    }
-
-    if (empty($host)) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'آدرس سرور ایزابل (IP یا Hostname) تعیین نشده است.'
-        ], 422);
-    }
-
-    if (empty($username)) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'نام کاربری AMI (Manager Username) الزامی است.'
-        ], 422);
-    }
-
-    $startTime = microtime(true);
-    $timeout = 4; // ثانیه
-    $fp = @fsockopen($host, $port, $errno, $errstr, $timeout);
-
-    if (!$fp) {
-        $latency = round((microtime(true) - $startTime) * 1000);
-        return response()->json([
-            'status' => 'error',
-            'message' => "عدم امکان اتصال به سرویس AMI ایزابل در {$host}:{$port} - علت: " . ($errstr ?: "پورت در دسترس نیست یا فایروال مسدود است ($errno)"),
-            'latencyMs' => $latency
-        ], 500);
-    }
-
-    stream_set_timeout($fp, 4);
-
-    // ۱. خواندن بنر اولیه استریسک (مثلاً Asterisk Call Manager/5.0.3)
-    $banner = trim(fgets($fp, 1024));
-    if (!str_contains($banner, 'Asterisk Call Manager')) {
-        fclose($fp);
-        $latency = round((microtime(true) - $startTime) * 1000);
-        return response()->json([
-            'status' => 'error',
-            'message' => "سرویس روی پورت {$port} پاسخ استریسک استاندارد ارسال نکرد: {$banner}",
-            'latencyMs' => $latency
-        ], 500);
-    }
-
-    // ۲. ارسال پکت Login به AMI
-    $loginPacket = "Action: Login\r\n" .
-                   "Username: {$username}\r\n" .
-                   "Secret: {$secret}\r\n\r\n";
-    fwrite($fp, $loginPacket);
-
-    // ۳. خواندن پاسخ احراز هویت از استریسک
-    $responseLines = [];
-    $authSuccess = false;
-    $errorMessage = 'احراز هویت ناموفق بود.';
-
-    while (!feof($fp)) {
-        $line = trim(fgets($fp, 1024));
-        if ($line === '') {
-            break; // پایان بلوک پاسخ
-        }
-        $responseLines[] = $line;
-        if (stripos($line, 'Response: Success') !== false) {
-            $authSuccess = true;
-        }
-        if (stripos($line, 'Message:') === 0) {
-            $msg = trim(substr($line, 8));
-            if (!$authSuccess) {
-                $errorMessage = $msg;
-            }
-        }
-    }
-
-    // ارسال خروج تمیز از سوکت
-    @fwrite($fp, "Action: Logoff\r\n\r\n");
-    @fclose($fp);
-
-    $latency = round((microtime(true) - $startTime) * 1000);
-
-    if (!$authSuccess) {
-        return response()->json([
-            'status' => 'error',
-            'message' => "احراز هویت در سرویس AMI ایزابل ({$host}:{$port}) رد شد: {$errorMessage} (لطفاً نام کاربری و Secret را بررسی کنید)",
-            'latencyMs' => $latency,
-            'version' => $banner,
-        ], 401);
-    }
-
-    return response()->json([
-        'status' => 'success',
-        'message' => "اتصال موفق به سرویس AMI ایزابل ({$banner}) در {$host}:{$port} با کاربر «{$username}» تأیید شد (Authentication Accepted).",
-        'latencyMs' => $latency,
-        'version' => $banner,
-    ]);
-});
-
-/*
-|--------------------------------------------------------------------------
-| ۵.۲. برقراری تماس تلفنی (Click to Call / Asterisk Originate)
-|--------------------------------------------------------------------------
-*/
-Route::post('/voip/originate', function (Request $request) {
-    $callerExtension = trim($request->input('caller_extension', ''));
-    $targetNumber = trim($request->input('target_number', ''));
-    $targetName = trim($request->input('target_name', ''));
-    $domainId = $request->input('domain_id');
-    $host = trim($request->input('host', ''));
-    $port = (int)$request->input('port', 5038);
-    $username = trim($request->input('username', ''));
-    $secret = $request->input('secret');
-    $context = trim($request->input('context', 'from-internal'));
-    $channelTech = trim($request->input('channel_tech', 'SIP'));
-    $autoAnswer = (bool)$request->input('auto_answer', true);
-
-    if (empty($callerExtension)) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'شماره داخلی مبدأ (شماره رومیزی شما) مشخص نیست.'
-        ], 422);
-    }
-
-    if (empty($targetNumber)) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'شماره مقصد تماس مشخص نیست.'
-        ], 422);
-    }
-
-    // لود تنظیمات از دیتابیس در صورت عدم ارسال در ریکوئست
-    if (!empty($domainId) && (empty($host) || empty($username) || $secret === null || $secret === '')) {
-        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
-        if ($savedDomain) {
-            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
-            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
-            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
-            if ($secret === null || $secret === '') $secret = $savedDomain->voip_ami_secret ?? '';
-            if (empty($context)) $context = $savedDomain->voip_context ?? 'from-internal';
-            if (empty($channelTech)) $channelTech = $savedDomain->voip_channel_tech ?? 'SIP';
-        }
-    }
-
-    if (empty($host) || empty($username)) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'تنظیمات سرور VoIP برای دامین این کاربر ثبت نشده است.'
-        ], 422);
-    }
-
-    $fp = @fsockopen($host, $port, $errno, $errstr, 4);
-    if (!$fp) {
-        return response()->json([
-            'status' => 'error',
-            'message' => "عدم امکان اتصال به سرور ایزابل در {$host}:{$port} ({$errstr})"
-        ], 500);
-    }
-
-    stream_set_timeout($fp, 5);
-
-    // ۱. خواندن بنر اولیه
-    fgets($fp, 1024);
-
-    // ۲. لاگین AMI
-    $loginPacket = "Action: Login\r\n" .
-                   "Username: {$username}\r\n" .
-                   "Secret: {$secret}\r\n\r\n";
-    fwrite($fp, $loginPacket);
-
-    $authSuccess = false;
-    while (!feof($fp)) {
-        $line = trim(fgets($fp, 1024));
-        if ($line === '') break;
-        if (stripos($line, 'Response: Success') !== false) {
-            $authSuccess = true;
-        }
-    }
-
-    if (!$authSuccess) {
-        @fwrite($fp, "Action: Logoff\r\n\r\n");
-        @fclose($fp);
-        return response()->json([
-            'status' => 'error',
-            'message' => 'احراز هویت در سرویس AMI ایزابل با نام کاربری یا Secret فعلی رد شد.'
-        ], 401);
-    }
-
-    // ۳. ارسال پکت Originate
-    $channel = "{$channelTech}/{$callerExtension}";
-    $cleanTarget = preg_replace('/[^0-9]/', '', $targetNumber);
-    $callId = 'originate_' . time() . '_' . mt_rand(1000, 9999);
-
-    $originatePacket = "Action: Originate\r\n" .
-                       "Channel: {$channel}\r\n" .
-                       "Exten: {$cleanTarget}\r\n" .
-                       "Context: {$context}\r\n" .
-                       "Priority: 1\r\n" .
-                       "CallerID: {$callerExtension} <{$callerExtension}>\r\n" .
-                       "Timeout: 30000\r\n" .
-                       "Async: true\r\n" .
-                       "ActionID: {$callId}\r\n";
-
-    if ($autoAnswer) {
-        $originatePacket .= "Variable: __SIPADDHEADER=Call-Info: \\;answer-after=0\r\n";
-        $originatePacket .= "Variable: __ALERT_INFO=Ring Answer\r\n";
-    }
-    $originatePacket .= "\r\n";
-
-    fwrite($fp, $originatePacket);
-
-    // خواندن پاسخ‌های بازگشتی AMI به بسته Originate
-    $originateSuccess = false;
-    $originateMessage = '';
-    $rawResponses = [];
-
-    // ممکن است چندین خط یا هدر و سپس خط خالی ارسال شود
-    for ($i = 0; $i < 30 && !feof($fp); $i++) {
-        $line = trim(fgets($fp, 1024));
-        if ($line === '' && !empty($rawResponses)) {
-            // یک بلوک پاسخ خوانده شد
-            if ($originateSuccess || stripos(implode(' ', $rawResponses), 'Response: Error') !== false) {
-                break;
-            }
-            continue;
-        }
-        if ($line !== '') {
-            $rawResponses[] = $line;
-            if (stripos($line, 'Response: Success') !== false) {
-                $originateSuccess = true;
-            }
-            if (stripos($line, 'Message:') === 0) {
-                $originateMessage = trim(substr($line, 8));
-            }
-        }
-    }
-
-    $rawText = implode(' ', $rawResponses);
-    if (stripos($rawText, 'Response: Success') !== false || stripos($rawText, 'Originate successfully queued') !== false) {
-        $originateSuccess = true;
-    }
-
-    @fwrite($fp, "Action: Logoff\r\n\r\n");
-    @fclose($fp);
-
-    if ($originateSuccess) {
-        return response()->json([
-            'status' => 'success',
-            'message' => "دستور تماس به سرور VoIP ({$host}) ارسال شد. گوشی رومیزی شما ({$channel}) زنگ خواهد خورد.",
-            'callId' => $callId,
-        ]);
+export const saveStoredAuthUser = (user: User | null): void => {
+  try {
+    if (user) {
+      localStorage.setItem(STORAGE_KEY_AUTH, JSON.stringify(user));
     } else {
-        $cleanMsg = $originateMessage ?: 'عدم دریافت پاسخ معتبر از سرور VoIP';
-        return response()->json([
-            'status' => 'error',
-            'message' => "خطا در ارسال دستور تماس به سرور VoIP: {$cleanMsg}"
-        ], 500);
+      localStorage.setItem(STORAGE_KEY_AUTH, 'null');
     }
-});
+  } catch (e) {
+    console.error('Error saving auth user', e);
+  }
+};
 
-/*
-|--------------------------------------------------------------------------
-| ۵.۳. قطع تماس تلفنی جاری از طریق وب (Hangup via AMI)
-|--------------------------------------------------------------------------
-*/
-Route::post('/voip/hangup', function (Request $request) {
-    $callerExtension = trim($request->input('caller_extension', ''));
-    $domainId = $request->input('domain_id');
-    $host = trim($request->input('host', ''));
-    $port = (int)$request->input('port', 5038);
-    $username = trim($request->input('username', ''));
-    $secret = $request->input('secret');
-    $channelTech = trim($request->input('channel_tech', 'SIP'));
+export const getAuthToken = (): string => {
+  try {
+    return (
+      localStorage.getItem('enterprise_phonebook_auth_token') ||
+      sessionStorage.getItem('enterprise_phonebook_auth_token') ||
+      ''
+    );
+  } catch {
+    return '';
+  }
+};
 
-    if (empty($callerExtension)) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'شماره داخلی مشخص نیست.'
-        ], 422);
+// Permanent User Favorites Storage (Keyed per user for permanent multi-user persistence)
+const STORAGE_KEY_USER_FAVORITES_PREFIX = 'enterprise_phonebook_user_favs_v10_';
+
+export const getStoredUserFavorites = (userId: number | string): (number | string)[] => {
+  try {
+    const raw = localStorage.getItem(`${STORAGE_KEY_USER_FAVORITES_PREFIX}${userId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Error reading user favorites', e);
+  }
+  return [];
+};
+
+export const saveStoredUserFavorites = (
+  userId: number | string,
+  favoriteIds: (number | string)[]
+): void => {
+  try {
+    localStorage.setItem(
+      `${STORAGE_KEY_USER_FAVORITES_PREFIX}${userId}`,
+      JSON.stringify(favoriteIds)
+    );
+  } catch (e) {
+    console.error('Error saving user favorites', e);
+  }
+};
+
+// LDAP Domains Storage
+export const getStoredLdapDomains = (): LdapDomain[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DOMAINS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Error reading LDAP domains', e);
+  }
+  return [];
+};
+
+export const saveStoredLdapDomains = (domains: LdapDomain[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_DOMAINS, JSON.stringify(domains));
+  } catch (e) {
+    console.error('Error saving LDAP domains', e);
+  }
+};
+
+// Departments Storage
+export const getStoredDepartments = (): Department[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_DEPARTMENTS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Error reading departments', e);
+  }
+  return [];
+};
+
+export const saveStoredDepartments = (departments: Department[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY_DEPARTMENTS, JSON.stringify(departments));
+  } catch (e) {
+    console.error('Error saving departments', e);
+  }
+};
+
+// Real testing of LDAP server connectivity via backend API
+export const testLdapConnection = async (domain: LdapDomain, config?: LaravelConfig): Promise<{ success: boolean; message: string; latencyMs: number }> => {
+  const start = Date.now();
+
+  if (!domain.host || !domain.name) {
+    return {
+      success: false,
+      message: 'نام دامین و آدرس IP سرور الزامی هستند.',
+      latencyMs: 0,
+    };
+  }
+
+  const laravelCfg = config || getSavedLaravelConfig();
+  try {
+    const baseUrl = laravelCfg.baseUrl.replace(/\/$/, '');
+    const targetUrl = `${baseUrl}${laravelCfg.apiPrefix}/domains/test-ldap`;
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        domain_id: domain.id,
+        host: domain.host,
+        port: domain.port,
+        encryption: domain.encryption,
+        base_dn: domain.base_dn,
+        bind_user: domain.bind_user,
+        bind_password: domain.bind_password,
+      }),
+    });
+
+    const latency = Math.round(Date.now() - start);
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        success: true,
+        message: json.message || `اتصال واقعی به دامین کنترلر ${domain.host}:${domain.port} با موفقیت برقرار شد.`,
+        latencyMs: latency,
+      };
+    } else {
+      const json = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        message: json.message || `خطا در برقراری ارتباط با دامین کنترلر ${domain.host}:${domain.port} (کد خطا: ${res.status})`,
+        latencyMs: latency,
+      };
+    }
+  } catch (e: any) {
+    const latency = Math.round(Date.now() - start);
+    return {
+      success: false,
+      message: `خطای اتصال به سرور بک‌اند جهت تست LDAP: ${e?.message || 'عدم دسترسی به سرور'}`,
+      latencyMs: latency,
+    };
+  }
+};
+
+// Real testing of Issabel / Asterisk AMI connectivity via Backend Proxy
+export const testVoipAmiConnection = async (domain: LdapDomain): Promise<{ success: boolean; message: string; latencyMs: number; version?: string }> => {
+  const start = Date.now();
+
+  if (!domain.voip_server_host || !domain.voip_server_host.trim()) {
+    return {
+      success: false,
+      message: 'آدرس سرور ایزابل (IP یا Hostname) تعیین نشده است.',
+      latencyMs: 0,
+    };
+  }
+
+  const laravelCfg = getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/domains/test-voip`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        domain_id: domain.id,
+        host: domain.voip_server_host.trim(),
+        port: domain.voip_ami_port || 5038,
+        username: domain.voip_ami_username ? domain.voip_ami_username.trim() : 'phonebook_ami',
+        secret: domain.voip_ami_secret !== undefined ? domain.voip_ami_secret : '',
+      }),
+    });
+
+    const latency = Math.round(Date.now() - start);
+    const json = await res.json().catch(() => ({}));
+
+    if (res.ok && json.status === 'success') {
+      return {
+        success: true,
+        message: json.message || `اتصال موفق به سرویس AMI ایزابل با کاربر ${domain.voip_ami_username} تایید شد.`,
+        latencyMs: json.latencyMs || latency,
+        version: json.version,
+      };
+    } else {
+      return {
+        success: false,
+        message: json.message || `خطا در برقراری ارتباط با سرور ایزابل (کد وضعیت: ${res.status})`,
+        latencyMs: json.latencyMs || latency,
+      };
+    }
+  } catch (e: any) {
+    const latency = Math.round(Date.now() - start);
+    return {
+      success: false,
+      message: `خطای اتصال به سرور جهت تست VoIP: ${e?.message || 'عدم دسترسی به سرور یا شبکه'}`,
+      latencyMs: latency,
+    };
+  }
+};
+
+// Real Initiate Click-to-Call (Originate) via Backend Proxy
+export const originateVoipCall = async (params: {
+  targetNumber: string;
+  targetName?: string;
+  callerExtension: string;
+  domain: LdapDomain;
+}): Promise<{ success: boolean; message: string; callId: string }> => {
+  const laravelCfg = getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/voip/originate`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        caller_extension: params.callerExtension,
+        target_number: params.targetNumber,
+        target_name: params.targetName,
+        domain_id: params.domain.id,
+        host: params.domain.voip_server_host,
+        port: params.domain.voip_ami_port || 5038,
+        username: params.domain.voip_ami_username,
+        secret: params.domain.voip_ami_secret,
+        context: params.domain.voip_context || 'from-internal',
+        channel_tech: params.domain.voip_channel_tech || 'SIP',
+        auto_answer: params.domain.voip_auto_answer ?? true,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json.status === 'success') {
+      return {
+        success: true,
+        message: json.message || `دستور برقراری تماس به سرور VoIP ارسال شد. گوشی رومیزی شما (${params.callerExtension}) زنگ می‌خورد.`,
+        callId: json.callId || `call-${Date.now()}`,
+      };
+    } else {
+      return {
+        success: false,
+        message: json.message || `خطا در ارسال دستور تماس به سرور VoIP (${res.status})`,
+        callId: '',
+      };
+    }
+  } catch (e: any) {
+    return {
+      success: false,
+      message: `خطای برقراری ارتباط با وب‌سرویس تماس: ${e?.message || 'عدم دسترسی به سرور'}`,
+      callId: '',
+    };
+  }
+};
+
+// Hangup Active VoIP Call
+export const hangupVoipCall = async (params: {
+  callerExtension: string;
+  domain: LdapDomain;
+}): Promise<{ success: boolean; message: string }> => {
+  const laravelCfg = getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/voip/hangup`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        caller_extension: params.callerExtension,
+        domain_id: params.domain.id,
+        host: params.domain.voip_server_host,
+        port: params.domain.voip_ami_port || 5038,
+        username: params.domain.voip_ami_username,
+        secret: params.domain.voip_ami_secret,
+        channel_tech: params.domain.voip_channel_tech || 'SIP',
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json.status === 'success') {
+      return {
+        success: true,
+        message: json.message || 'تماس با موفقیت قطع شد.',
+      };
+    } else {
+      return {
+        success: false,
+        message: json.message || `خطا در قطع تماس (${res.status})`,
+      };
+    }
+  } catch (e: any) {
+    return {
+      success: false,
+      message: `خطا در ارسال دستور قطع تماس: ${e?.message || 'عدم دسترسی به سرور'}`,
+    };
+  }
+};
+
+// Check if Extension has an active call on Asterisk
+export const checkVoipChannelStatus = async (params: {
+  callerExtension: string;
+  domain: LdapDomain;
+}): Promise<{ active: boolean; duration?: number }> => {
+  const laravelCfg = getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/voip/channel-status`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        caller_extension: params.callerExtension,
+        domain_id: params.domain.id,
+        host: params.domain.voip_server_host,
+        port: params.domain.voip_ami_port || 5038,
+        username: params.domain.voip_ami_username,
+        secret: params.domain.voip_ami_secret,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      return {
+        active: Boolean(json.active),
+        duration: typeof json.duration === 'number' ? json.duration : undefined,
+      };
+    }
+    return { active: false };
+  } catch {
+    return { active: false };
+  }
+};
+
+// Test connection to Laravel
+export const testLaravelPing = async (config: LaravelConfig): Promise<{ success: boolean; message: string; data?: any }> => {
+  const targetUrl = `${config.baseUrl.replace(/\/$/, '')}${config.apiPrefix}/contacts`;
+  try {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (config.token) {
+      headers['Authorization'] = `Bearer ${config.token}`;
     }
 
-    if (!empty($domainId) && (empty($host) || empty($username) || $secret === null || $secret === '')) {
-        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
-        if ($savedDomain) {
-            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
-            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
-            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
-            if ($secret === null || $secret === '') $secret = $savedDomain->voip_ami_secret ?? '';
-            if (empty($channelTech)) $channelTech = $savedDomain->voip_channel_tech ?? 'SIP';
-        }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const res = await fetch(targetUrl, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      const json = await res.json();
+      return {
+        success: true,
+        message: 'اتصال به وب‌سرویس با موفقیت برقرار شد.',
+        data: json,
+      };
+    } else {
+      return {
+        success: false,
+        message: `پاسخ وب‌سرویس با کد وضعیت ${res.status} همراه بود (${res.statusText})`,
+      };
     }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: `خطا در ارتباط با ${targetUrl}: ${error?.message || 'سرور در دسترس نیست یا CORS فعال نشده است.'}`,
+    };
+  }
+};
 
-    if (empty($host) || empty($username)) {
-        return response()->json(['status' => 'error', 'message' => 'تنظیمات سرور VoIP ناقص است.'], 422);
-    }
+/**
+ * Fetch contacts from Laravel Live API
+ */
+export const fetchContactsFromApi = async (config: LaravelConfig): Promise<Contact[]> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/contacts`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  const token = config.token || getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const authUser = getStoredAuthUser();
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
+  }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
+  }
 
-    $fp = @fsockopen($host, $port, $errno, $errstr, 3);
-    if (!$fp) {
-        return response()->json(['status' => 'error', 'message' => 'عدم دسترسی به سرور VoIP.'], 500);
-    }
+  const res = await fetch(targetUrl, { method: 'GET', headers });
+  if (!res.ok) {
+    throw new Error(`خطای دریافت مخاطبین: ${res.status}`);
+  }
+  const json = await res.json();
+  const rawList = Array.isArray(json) ? json : (json.data || []);
+  return rawList.map((item: any) => {
+    const isLocation =
+      item.prefix_title === 'location' ||
+      (item.description && typeof item.description === 'string' && item.description.includes('[PREFIX:LOCATION]')) ||
+      (item.last_name === '-' && item.prefix_title !== 'ms');
 
-    stream_set_timeout($fp, 3);
-    fgets($fp, 1024);
+    const cleanDesc = item.description && typeof item.description === 'string'
+      ? item.description.replace('[PREFIX:LOCATION]', '').trim()
+      : (item.description || '');
 
-    $loginPacket = "Action: Login\r\n" .
-                   "Username: {$username}\r\n" .
-                   "Secret: {$secret}\r\n\r\n";
-    fwrite($fp, $loginPacket);
+    return {
+      id: item.id,
+      personnel_code: item.personnel_code,
+      prefix_title: (isLocation ? 'location' : (item.prefix_title || 'mr')) as any,
+      first_name: item.first_name || '',
+      last_name: isLocation && item.last_name === '-' ? '' : (item.last_name || ''),
+      job_title: item.job_title || '',
+      department: item.department || '',
+      location: item.location || '',
+      mobiles: Array.isArray(item.mobiles) ? item.mobiles : [],
+      landlines: Array.isArray(item.landlines)
+        ? item.landlines.map((l: any, idx: number) => ({
+            id: String(l?.id || idx + 1),
+            phone: String(l?.phone || '').trim(),
+            extension: String(l?.extension || '').trim(),
+            title: l?.title ? String(l.title).trim() : undefined,
+            type: l?.type ? String(l.type).trim() : undefined,
+            is_admin_only: isAdminOnlyLandline(l),
+          }))
+        : [],
+      email: item.email || '',
+      description: cleanDesc,
+      avatar: item.avatar || '',
+      contact_type: item.contact_type || 'internal',
+      domain: item.domain ? String(item.domain) : (item.domain_name ? String(item.domain_name) : (item.domain_id ? String(item.domain_id) : '')),
+      domain_name: item.domain_name ? String(item.domain_name) : (item.domain ? String(item.domain) : ''),
+      domain_id: item.domain_id !== undefined && item.domain_id !== null && item.domain_id !== ''
+        ? String(item.domain_id)
+        : (item.domain ? String(item.domain) : ''),
+      company_name: item.company_name || '',
+      is_favorite: Boolean(item.is_favorite),
+      created_by_user_id: item.created_by_user_id,
+      created_by_user_name: item.created_by_user_name || undefined,
+      is_public: item.is_public !== undefined ? Boolean(item.is_public) : true,
+      is_mobile_public: item.is_mobile_public !== undefined ? Boolean(item.is_mobile_public) : false,
+      personal_mobiles: item.personal_mobiles && typeof item.personal_mobiles === 'object' ? item.personal_mobiles : {},
+      display_order: typeof item.display_order === 'number' ? item.display_order : undefined,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    };
+  });
+};
 
-    // بررسی لاگین
-    $auth = false;
-    while (!feof($fp)) {
-        $l = trim(fgets($fp, 1024));
-        if ($l === '') break;
-        if (stripos($l, 'Response: Success') !== false) $auth = true;
-    }
+/**
+ * Create or update contact on Laravel Live API
+ */
+export const saveContactToApi = async (
+  contact: Contact,
+  config: LaravelConfig,
+  isNew?: boolean
+): Promise<Contact> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  const token = config.token || getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const authUser = getStoredAuthUser();
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
+  }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
+  }
 
-    if (!$auth) {
-        @fclose($fp);
-        return response()->json(['status' => 'error', 'message' => 'احراز هویت ناموفق'], 401);
-    }
+  // Determine if this is an update or create
+  const rawId = contact.id;
+  const numId = rawId !== undefined && rawId !== null ? Number(rawId) : NaN;
+  const hasNumericId = !isNaN(numId) && numId > 0;
+  
+  // It is an update if explicitly specified (isNew === false) or if it has a real DB ID (< 1,000,000,000)
+  const isUpdate = isNew !== undefined ? !isNew : Boolean(hasNumericId && numId < 1000000000);
+  const targetId = hasNumericId ? numId : contact.id;
 
-    // ابتدا لیست کانال‌ها را می‌گیریم تا نام دقیق کانال استریسک را بیابیم
-    $reqId = 'chanlist_' . time();
-    $chanPacket = "Action: CoreShowChannels\r\n" .
-                  "ActionID: {$reqId}\r\n\r\n";
-    fwrite($fp, $chanPacket);
+  const targetUrl = isUpdate
+    ? `${baseUrl}${config.apiPrefix}/contacts/${targetId}`
+    : `${baseUrl}${config.apiPrefix}/contacts`;
+  const method = isUpdate ? 'PUT' : 'POST';
 
-    $channelsToHangup = [];
-    while (!feof($fp)) {
-        $l = trim(fgets($fp, 1024));
-        if (stripos($l, 'EventList: Complete') !== false) break;
-        if (stripos($l, 'Channel:') === 0) {
-            $ch = trim(substr($l, 8));
-            // اگر کانال مربوط به این داخلی باشد (مثلاً SIP/208-0000001a یا PJSIP/208-xxxx)
-            if (preg_match('#(?:SIP|PJSIP)/' . preg_quote($callerExtension, '#') . '[-_]#i', $ch)) {
-                $channelsToHangup[] = $ch;
-            }
-        }
-    }
+  // Sanitize mobiles: array of non-empty strings
+  const cleanMobiles = Array.isArray(contact.mobiles)
+    ? contact.mobiles
+        .map((m) => (typeof m === 'string' ? m.trim() : String(m || '')))
+        .filter((m) => m !== '')
+    : [];
 
-    // اگر از CoreShowChannels کانالی پیدا نشد، فرمت پیش‌فرض را امتحان می‌کنیم
-    if (empty($channelsToHangup)) {
-        $channelsToHangup[] = "{$channelTech}/{$callerExtension}";
-    }
+  // Sanitize landlines: array of objects with valid phone or extension
+  const cleanLandlines = Array.isArray(contact.landlines)
+    ? contact.landlines
+        .filter((l) => l && (String(l.phone || '').trim() !== '' || String(l.extension || '').trim() !== ''))
+        .map((l, idx) => ({
+          id: String(l.id || idx + 1),
+          phone: String(l.phone || '').trim(),
+          extension: String(l.extension || '').trim(),
+          title: String(l.title || '').trim(),
+          is_admin_only: isAdminOnlyLandline(l),
+        }))
+    : [];
 
-    $hungUpCount = 0;
-    foreach ($channelsToHangup as $ch) {
-        $hPacket = "Action: Hangup\r\n" .
-                   "Channel: {$ch}\r\n\r\n";
-        fwrite($fp, $hPacket);
-        $hungUpCount++;
-    }
+  const isLocation = contact.prefix_title === 'location';
+  // Backend validation: accepts 'location', 'mr', 'ms'. Never send null because prefix_title is NOT NULL in database schema.
+  const prefixTitleVal = isLocation
+    ? 'location'
+    : contact.prefix_title === 'ms'
+    ? 'ms'
+    : 'mr';
 
-    @fwrite($fp, "Action: Logoff\r\n\r\n");
-    @fclose($fp);
+  // Required name fields
+  const firstNameVal = (contact.first_name || '').trim();
+  const lastNameVal = isLocation
+    ? (contact.last_name?.trim() || '-')
+    : (contact.last_name?.trim() || '-');
 
-    return response()->json([
-        'status' => 'success',
-        'message' => 'دستور قطع تماس به مرکز تلفن ارسال شد.',
-        'hungUpCount' => $hungUpCount,
-    ]);
-});
+  // Clean email: must be valid email or null (never empty string "" which fails Laravel validation)
+  const rawEmail = (contact.email || '').trim();
+  const emailVal = rawEmail && rawEmail.includes('@') ? rawEmail : null;
 
-/*
-|--------------------------------------------------------------------------
-| ۵.۴. استعلام زنده وضعیت کانال مکالمه داخلی (Active Call Check)
-|--------------------------------------------------------------------------
-*/
-Route::post('/voip/channel-status', function (Request $request) {
-    $callerExtension = trim($request->input('caller_extension', ''));
-    $domainId = $request->input('domain_id');
-    $host = trim($request->input('host', ''));
-    $port = (int)$request->input('port', 5038);
-    $username = trim($request->input('username', ''));
-    $secret = $request->input('secret');
+  // Description with location tag preservation
+  let descVal = (contact.description || '').trim();
+  if (isLocation && !descVal.includes('[PREFIX:LOCATION]')) {
+    descVal = descVal ? `${descVal} [PREFIX:LOCATION]` : '[PREFIX:LOCATION]';
+  } else if (!isLocation && descVal.includes('[PREFIX:LOCATION]')) {
+    descVal = descVal.replace('[PREFIX:LOCATION]', '').trim();
+  }
 
-    if (empty($callerExtension)) {
-        return response()->json(['active' => false]);
-    }
+  const resolvedCreatedById =
+    contact.created_by_user_id !== undefined && contact.created_by_user_id !== null && contact.created_by_user_id !== 0
+      ? Number(contact.created_by_user_id)
+      : (authUser?.id ? Number(authUser.id) : undefined);
 
-    if (!empty($domainId) && (empty($host) || empty($username) || $secret === null || $secret === '')) {
-        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
-        if ($savedDomain) {
-            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
-            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
-            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
-            if ($secret === null || $secret === '') $secret = $savedDomain->voip_ami_secret ?? '';
-        }
-    }
+  const payload: any = {
+    first_name: firstNameVal,
+    last_name: lastNameVal,
+    prefix_title: prefixTitleVal,
+    personnel_code: contact.personnel_code ? contact.personnel_code.trim() : null,
+    job_title: contact.job_title ? contact.job_title.trim() : null,
+    department: contact.department ? contact.department.trim() : null,
+    location: contact.location ? contact.location.trim() : null,
+    mobiles: cleanMobiles,
+    landlines: cleanLandlines,
+    email: emailVal,
+    description: descVal || null,
+    avatar: contact.avatar || null,
+    contact_type: contact.contact_type === 'external' ? 'external' : 'internal',
+    domain: contact.contact_type === 'internal' ? (contact.domain || contact.domain_id || contact.domain_name || null) : null,
+    domain_id: contact.contact_type === 'internal' ? (contact.domain_id || contact.domain || null) : null,
+    domain_name: contact.contact_type === 'internal' ? (contact.domain_name || contact.domain || null) : null,
+    company_name: contact.contact_type === 'external' ? (contact.company_name || null) : null,
+    is_public: contact.is_public !== undefined ? Boolean(contact.is_public) : true,
+    is_mobile_public: contact.is_mobile_public !== undefined ? Boolean(contact.is_mobile_public) : false,
+    personal_mobiles: contact.personal_mobiles && typeof contact.personal_mobiles === 'object' ? contact.personal_mobiles : {},
+    is_favorite: Boolean(contact.is_favorite),
+    created_by_user_id: resolvedCreatedById,
+  };
 
-    if (empty($host) || empty($username)) {
-        return response()->json(['active' => false]);
-    }
+  let res: Response;
+  try {
+    res = await fetch(targetUrl, {
+      method,
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (netErr: any) {
+    console.warn('Network error reaching backend API, preserving locally:', netErr);
+    // Return updated contact so local state and storage succeed
+    return contact;
+  }
 
-    $fp = @fsockopen($host, $port, $errno, $errstr, 2);
-    if (!$fp) {
-        return response()->json(['active' => false, 'error' => 'server_unreachable']);
-    }
-
-    stream_set_timeout($fp, 2);
-    fgets($fp, 1024);
-
-    $loginPacket = "Action: Login\r\n" .
-                   "Username: {$username}\r\n" .
-                   "Secret: {$secret}\r\n\r\n";
-    fwrite($fp, $loginPacket);
-
-    $auth = false;
-    while (!feof($fp)) {
-        $l = trim(fgets($fp, 1024));
-        if ($l === '') break;
-        if (stripos($l, 'Response: Success') !== false) $auth = true;
-    }
-
-    if (!$auth) {
-        @fclose($fp);
-        return response()->json(['active' => false, 'error' => 'auth_failed']);
-    }
-
-    $reqId = 'stat_' . time();
-    $chanPacket = "Action: CoreShowChannels\r\n" .
-                  "ActionID: {$reqId}\r\n\r\n";
-    fwrite($fp, $chanPacket);
-
-    $isActive = false;
-    $channelName = null;
-    $duration = 0;
-
-    while (!feof($fp)) {
-        $l = trim(fgets($fp, 1024));
-        if (stripos($l, 'EventList: Complete') !== false) break;
-        if (stripos($l, 'Channel:') === 0) {
-            $ch = trim(substr($l, 8));
-            if (preg_match('#(?:SIP|PJSIP)/' . preg_quote($callerExtension, '#') . '[-_]#i', $ch)) {
-                $isActive = true;
-                $channelName = $ch;
-            }
-        }
-        if ($isActive && stripos($l, 'Duration:') === 0) {
-            $duration = (int)trim(substr($l, 9));
-        }
-    }
-
-    @fwrite($fp, "Action: Logoff\r\n\r\n");
-    @fclose($fp);
-
-    return response()->json([
-        'active' => $isActive,
-        'channel' => $channelName,
-        'duration' => $duration,
-    ]);
-});
-
-/*
-|--------------------------------------------------------------------------
-| ۶. احراز هویت و ورود کاربران بر اساس دامین انتخابی (LDAP Login)
-|--------------------------------------------------------------------------
-*/
-Route::post('/login/ldap', function (Request $request) {
+  // If 404 on PUT (contact was created locally or removed on server), fallback to POST
+  if (!res.ok && res.status === 404 && isUpdate) {
     try {
-        $username = trim($request->input('username', ''));
-        $password = $request->input('password', '');
-        $domainId = $request->input('domain_id');
-        $domainName = trim($request->input('domain_name', ''));
+      const postUrl = `${baseUrl}${config.apiPrefix}/contacts`;
+      const postRes = await fetch(postUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      if (postRes.ok) {
+        res = postRes;
+      }
+    } catch (fallbackErr) {
+      console.warn('Fallback POST after 404 encountered error:', fallbackErr);
+    }
+  }
 
-        if (empty($username) || empty($password)) {
-            return response()->json(['status' => 'error', 'message' => 'نام کاربری و رمز عبور الزامی است.'], 422);
+  // If server validation failed (422) retry with minimal payload if needed
+  if (!res.ok && res.status === 422) {
+    try {
+      const errClone = res.clone();
+      const errText = await errClone.text();
+      if (errText.toLowerCase().includes('prefix_title') || errText.toLowerCase().includes('prefix title')) {
+        const retryPayload = {
+          ...payload,
+          prefix_title: 'mr', // Fallback to 'mr' if server enum doesn't have 'location'; description holds [PREFIX:LOCATION]
+        };
+        const retryRes = await fetch(targetUrl, {
+          method,
+          headers,
+          body: JSON.stringify(retryPayload),
+        });
+        if (retryRes.ok) {
+          res = retryRes;
         }
+      }
+    } catch (e) {
+      console.warn('422 retry check encountered exception:', e);
+    }
+  }
 
-        // بررسی لاگین اضطراری ادمین لوکال
-        if ($username === 'admin' && $password === 'admin') {
-            $user = User::firstOrCreate(
-                ['email' => 'admin@parszarasa.local'],
+  if (!res.ok) {
+    const errText = await res.text();
+    let parsedMsg = errText;
+    try {
+      const errJson = JSON.parse(errText);
+      if (errJson.message) parsedMsg = errJson.message;
+      if (errJson.errors) {
+        const fieldErrors = Object.values(errJson.errors).flat().join(', ');
+        parsedMsg += ` (${fieldErrors})`;
+      }
+    } catch {}
+    throw new Error(`خطای ذخیره در وب‌سرویس سرور (${res.status}): ${parsedMsg}`);
+  }
+
+  const json = await res.json();
+  const savedItem = json.data || json;
+
+  const isResultLocation =
+    contact.prefix_title === 'location' ||
+    savedItem.prefix_title === 'location' ||
+    (savedItem.description && typeof savedItem.description === 'string' && savedItem.description.includes('[PREFIX:LOCATION]')) ||
+    (savedItem.last_name === '-' && savedItem.prefix_title !== 'ms');
+
+  const cleanSavedLastName =
+    isResultLocation && (savedItem.last_name === '-' || !savedItem.last_name)
+      ? (contact.last_name === '-' ? '' : (contact.last_name || ''))
+      : (savedItem.last_name || contact.last_name || '');
+
+  const cleanSavedDesc =
+    savedItem.description && typeof savedItem.description === 'string'
+      ? savedItem.description.replace('[PREFIX:LOCATION]', '').trim()
+      : (contact.description || '');
+
+  return {
+    ...contact,
+    ...savedItem,
+    id: savedItem.id || contact.id,
+    created_by_user_id:
+      savedItem.created_by_user_id !== undefined && savedItem.created_by_user_id !== null
+        ? Number(savedItem.created_by_user_id)
+        : (contact.created_by_user_id || resolvedCreatedById || 1),
+    domain: savedItem.domain ? String(savedItem.domain) : (contact.domain ? String(contact.domain) : ''),
+    domain_id: savedItem.domain_id !== undefined && savedItem.domain_id !== null && savedItem.domain_id !== ''
+      ? String(savedItem.domain_id)
+      : (contact.domain_id ? String(contact.domain_id) : (savedItem.domain ? String(savedItem.domain) : '')),
+    domain_name: savedItem.domain_name ? String(savedItem.domain_name) : (contact.domain_name ? String(contact.domain_name) : ''),
+    company_name: contact.contact_type === 'external' ? (contact.company_name || savedItem.company_name || '') : undefined,
+    prefix_title: isResultLocation ? 'location' : (contact.prefix_title || savedItem.prefix_title || 'mr'),
+    last_name: cleanSavedLastName,
+    description: cleanSavedDesc,
+    is_mobile_public: savedItem.is_mobile_public !== undefined ? Boolean(savedItem.is_mobile_public) : (contact.is_mobile_public ?? false),
+    personal_mobiles: savedItem.personal_mobiles && typeof savedItem.personal_mobiles === 'object'
+      ? savedItem.personal_mobiles
+      : (contact.personal_mobiles || {}),
+  };
+};
+
+/**
+ * Save personal mobiles to backend API (Personal Overlay in user notebook)
+ */
+export const savePersonalMobilesToApi = async (
+  contactId: number | string,
+  personalMobiles: Record<string | number, string[]>
+): Promise<Contact | null> => {
+  const config = getSavedLaravelConfig();
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/contacts/${contactId}/personal-mobiles`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  const token = config.token || getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const authUser = getStoredAuthUser();
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
+  }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
+  }
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ personal_mobiles: personalMobiles }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.data || data;
+    }
+
+    // Fallback to standard PUT /contacts/:id if dedicated endpoint is not yet defined on target
+    const putUrl = `${baseUrl}${config.apiPrefix}/contacts/${contactId}`;
+    const putRes = await fetch(putUrl, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ personal_mobiles: personalMobiles }),
+    });
+    if (putRes.ok) {
+      const putData = await putRes.json();
+      return putData.data || putData;
+    }
+  } catch (err) {
+    console.warn('Network error saving personal mobiles to API:', err);
+  }
+  return null;
+};
+
+/**
+ * Delete contact from Laravel Live API
+ */
+export const deleteContactFromApi = async (id: number | string, config: LaravelConfig): Promise<void> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/contacts/${id}`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  const res = await fetch(targetUrl, { method: 'DELETE', headers });
+  if (!res.ok) {
+    throw new Error(`خطای حذف در API: ${res.status}`);
+  }
+};
+
+/**
+ * Toggle Favorite on Laravel Live API / Database
+ */
+export const toggleFavoriteOnApi = async (
+  id: number | string,
+  config: LaravelConfig,
+  forcedStatus?: boolean
+): Promise<{ success: boolean; is_favorite?: boolean }> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/contacts/${id}/favorite`;
+  const token = config.token || getAuthToken();
+  const authUser = getStoredAuthUser();
+
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (authUser?.id) {
+    headers['X-User-Id'] = String(authUser.id);
+  }
+  if (authUser?.role) {
+    headers['X-User-Role'] = String(authUser.role);
+  }
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        contact_id: id,
+        user_id: authUser?.id,
+        ...(forcedStatus !== undefined ? { is_favorite: forcedStatus } : {}),
+      }),
+    });
+
+    if (res.ok) {
+      const json = await res.json().catch(() => null);
+      return {
+        success: true,
+        is_favorite: json?.is_favorite !== undefined ? Boolean(json.is_favorite) : forcedStatus,
+      };
+    }
+  } catch (err) {
+    console.warn('Network error reaching backend favorite endpoint:', err);
+  }
+  return { success: false, is_favorite: forcedStatus };
+};
+
+/**
+ * Fetch LDAP Domains from Laravel Live API / Database
+ * Supports fetching full admin config when authenticated or public domains for login
+ */
+export const fetchDomainsFromApi = async (config: LaravelConfig, isAdmin: boolean = false): Promise<LdapDomain[]> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const endpoint = isAdmin ? `${baseUrl}${config.apiPrefix}/admin/domains` : `${baseUrl}${config.apiPrefix}/domains`;
+  const fallbackEndpoint = `${baseUrl}${config.apiPrefix}/domains`;
+  
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  let res = await fetch(endpoint, { method: 'GET', headers }).catch(() => null);
+  if (!res || !res.ok) {
+    res = await fetch(fallbackEndpoint, { method: 'GET', headers });
+  }
+
+  if (!res.ok) {
+    throw new Error(`خطای دریافت دامین‌ها: ${res.status}`);
+  }
+  const json = await res.json();
+  const rawList = Array.isArray(json) ? json : (json.data || []);
+  return rawList.map((item: any) => ({
+    id: String(item.id || item.domain || item.name || Math.random()),
+    name: item.name || item.domain || '',
+    display_name: item.display_name || item.name || '',
+    host: item.host || '',
+    port: Number(item.port) || 389,
+    base_dn: item.base_dn || item.baseDn || '',
+    encryption: item.encryption || 'none',
+    bind_user: item.bind_user || '',
+    bind_password: item.bind_password || '',
+    user_filter: item.user_filter || '',
+    is_default: Boolean(item.is_default),
+    is_active: item.is_active !== undefined ? Boolean(item.is_active) : true,
+    created_at: item.created_at,
+    voip_enabled: Boolean(item.voip_enabled),
+    voip_server_host: item.voip_server_host || '',
+    voip_ami_port: Number(item.voip_ami_port) || 5038,
+    voip_ami_username: item.voip_ami_username || '',
+    voip_ami_secret: item.voip_ami_secret || '',
+    voip_context: item.voip_context || 'from-internal',
+    voip_trunk_prefix: item.voip_trunk_prefix || '',
+    voip_channel_tech: item.voip_channel_tech || 'SIP',
+    voip_auto_answer: Boolean(item.voip_auto_answer),
+  }));
+};
+
+/**
+ * Save or sync LDAP Domains to Laravel Live API / Database
+ */
+export const saveDomainsToApi = async (domains: LdapDomain[], config: LaravelConfig): Promise<void> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/domains/sync`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  const res = await fetch(targetUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ domains }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`خطای ذخیره دامین‌ها در سرور (${res.status}): ${errText}`);
+  }
+};
+
+/**
+ * Fetch Departments from Laravel Live API / Database
+ */
+export const fetchDepartmentsFromApi = async (config: LaravelConfig): Promise<Department[]> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/departments`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  const res = await fetch(targetUrl, { method: 'GET', headers });
+  if (!res.ok) {
+    throw new Error(`خطای دریافت واحدهای سازمانی: ${res.status}`);
+  }
+  const json = await res.json();
+  const rawList = Array.isArray(json) ? json : (json.data || []);
+
+  const parsedList: Department[] = rawList.map((item: any) => ({
+    id: String(item.id),
+    name: item.name || '',
+    code: item.code || '',
+    domain_id: item.domain_id ? String(item.domain_id) : undefined,
+    domain_name: item.domain_name || undefined,
+    sort_order: typeof item.sort_order === 'number' ? item.sort_order : undefined,
+  }));
+
+  // Ensure "all" synthetic entry exists at the start
+  const hasAll = parsedList.some((d) => d.id === 'all');
+  if (!hasAll && parsedList.length > 0) {
+    return [{ id: 'all', name: 'تمام واحدها', code: 'ALL' }, ...parsedList];
+  }
+
+  return parsedList;
+};
+
+/**
+ * Save or sync entire Departments list to Laravel Live API / Database
+ */
+export const saveDepartmentsToApi = async (departments: Department[], config: LaravelConfig): Promise<void> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/departments/sync`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  // Filter out the 'all' virtual item before persisting to DB
+  const realDepartments = departments.filter((d) => d.id !== 'all');
+
+  const res = await fetch(targetUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ departments: realDepartments }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`خطای ذخیره واحدها در دیتابیس (${res.status}): ${errText}`);
+  }
+};
+
+/**
+ * Save custom order of contacts (Drag & Drop) to server and storage
+ */
+export const saveContactsOrderToApi = async (
+  orderedItems: { id: number | string; display_order: number }[],
+  config: LaravelConfig
+): Promise<void> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/contacts/reorder`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ orders: orderedItems }),
+    });
+
+    if (!res.ok) {
+      console.warn(`Server reorder endpoint returned ${res.status}, order preserved locally.`);
+    }
+  } catch (err) {
+    console.warn('Server reorder endpoint not accessible, order saved locally.', err);
+  }
+};
+
+/**
+ * Create or Update a single Department on Laravel Live API / Database
+ */
+export const saveSingleDepartmentToApi = async (dept: Department, config: LaravelConfig): Promise<Department> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  const isNumericId = /^\d+$/.test(dept.id);
+  const isUpdate = isNumericId && Number(dept.id) > 0;
+  const targetUrl = isUpdate
+    ? `${baseUrl}${config.apiPrefix}/departments/${dept.id}`
+    : `${baseUrl}${config.apiPrefix}/departments`;
+  const method = isUpdate ? 'PUT' : 'POST';
+
+  const res = await fetch(targetUrl, {
+    method,
+    headers,
+    body: JSON.stringify({
+      name: dept.name,
+      code: dept.code,
+      domain_id: dept.domain_id,
+      sort_order: dept.sort_order,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`خطای ذخیره واحد سازمانی (${res.status}): ${errText}`);
+  }
+
+  const json = await res.json();
+  const savedItem = json.data || json;
+  return {
+    ...dept,
+    id: String(savedItem.id || dept.id),
+    name: savedItem.name || dept.name,
+    code: savedItem.code || dept.code,
+  };
+};
+
+/**
+ * Delete a Department from Laravel Live API / Database
+ */
+export const deleteDepartmentFromApi = async (id: string, config: LaravelConfig): Promise<void> => {
+  const baseUrl = config.baseUrl.replace(/\/$/, '');
+  const targetUrl = `${baseUrl}${config.apiPrefix}/departments/${id}`;
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (config.token) {
+    headers['Authorization'] = `Bearer ${config.token}`;
+  }
+
+  const res = await fetch(targetUrl, { method: 'DELETE', headers });
+  if (!res.ok) {
+    throw new Error(`خطای حذف واحد سازمانی از سرور: ${res.status}`);
+  }
+};
+
+// Laravel Backend Documentation & Code Snippet for User & Development
+export const LARAVEL_CODE_SNIPPET = {
+  deptMigration: `// database/migrations/xxxx_xx_xx_create_departments_table.php
+Schema::create('departments', function (Blueprint $table) {
+    $table->id();
+    $table->string('name')->unique();           // نام رسمی واحد سازمانی (*)
+    $table->string('code')->nullable();         // کدینگ سازمانی (مثلا IT, FIN, MNG)
+    $table->foreignId('domain_id')->nullable()->constrained('ldap_domains')->nullOnDelete(); // انتساب به دامین
+    $table->integer('sort_order')->default(0);  // اولویت نمایش در لیست‌ها
+    $table->timestamps();
+});`,
+
+  deptController: `// app/Http/Controllers/Api/DepartmentController.php
+namespace App\\Http\\Controllers\\Api;
+
+use App\\Http\\Controllers\\Controller;
+use App\\Models\\Department;
+use Illuminate\\Http\\Request;
+use Illuminate\\Validation\\Rule;
+
+class DepartmentController extends Controller
+{
+    public function index()
+    {
+        $departments = Department::orderBy('sort_order')
+            ->orderBy('name')
+            ->get();
+        return response()->json($departments);
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:150|unique:departments,name',
+            'code' => 'nullable|string|max:50',
+            'domain_id' => 'nullable|exists:ldap_domains,id',
+            'sort_order' => 'nullable|integer',
+        ]);
+
+        $department = Department::create($validated);
+        return response()->json($department, 201);
+    }
+
+    public function update(Request $request, Department $department)
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:150', Rule::unique('departments')->ignore($department->id)],
+            'code' => 'nullable|string|max:50',
+            'domain_id' => 'nullable|exists:ldap_domains,id',
+            'sort_order' => 'nullable|integer',
+        ]);
+
+        $department->update($validated);
+        return response()->json($department);
+    }
+
+    public function destroy(Department $department)
+    {
+        $department->delete();
+        return response()->json(['message' => 'واحد سازمانی با موفقیت حذف شد.']);
+    }
+
+    public function sync(Request $request)
+    {
+        $request->validate([
+            'departments' => 'required|array',
+        ]);
+
+        $items = $request->input('departments', []);
+        $saved = [];
+
+        foreach ($items as $index => $item) {
+            $dept = Department::updateOrCreate(
+                ['name' => $item['name']],
                 [
-                    'name'     => 'مدیر ارشد سامانه',
-                    'username' => 'admin',
-                    'password' => bcrypt('admin'),
-                    'role'     => 'admin',
+                    'code' => $item['code'] ?? null,
+                    'domain_id' => $item['domain_id'] ?? null,
+                    'sort_order' => $index,
                 ]
             );
-            if (empty($user->username)) {
-                $user->username = 'admin';
-                $user->save();
-            }
-
-            $token = method_exists($user, 'createToken') 
-                ? $user->createToken('auth-token')->plainTextToken 
-                : bin2hex(random_bytes(32));
-
-            return response()->json([
-                'status' => 'success',
-                'token'  => $token,
-                'user'   => [
-                    'id'             => $user->id,
-                    'name'           => 'مدیر ارشد سامانه',
-                    'username'       => 'admin',
-                    'email'          => 'admin@parszarasa.local',
-                    'personnel_code' => '00001',
-                    'role'           => 'admin',
-                    'department'     => 'فناوری اطلاعات',
-                    'domain'         => 'Local',
-                    'domain_name'    => 'Local',
-                    'auth_method'    => 'local',
-                    'extension'      => '',
-                ]
-            ]);
+            $saved[] = $dept;
         }
 
-        $domain = null;
-        if (!empty($domainId)) {
-            $domain = DB::table('ldap_domains')->where('id', $domainId)->first();
+        return response()->json(['message' => 'واحدهای سازمانی با دیتابیس همگام شدند.', 'data' => $saved]);
+    }
+}`,
+  contactModel: `// app/Models/Contact.php
+namespace App\\Models;
+
+use Illuminate\\Database\\Eloquent\\Factories\\HasFactory;
+use Illuminate\\Database\\Eloquent\\Model;
+
+class Contact extends Model
+{
+    use HasFactory;
+
+    // اجازه ذخیره تمام فیلدهای ارسال شده از سامانه
+    protected $guarded = [];
+
+    // تبدیل خودکار آرایه‌های موبایل و تلفن ثابت به JSON
+    protected $casts = [
+        'mobiles'          => 'array',
+        'landlines'        => 'array',
+        'personal_mobiles' => 'array',
+        'is_public'        => 'boolean',
+        'is_mobile_public' => 'boolean',
+        'has_ldap_account' => 'boolean',
+    ];
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /**
+     * رابطه چندبه‌چند: کاربرانی که این مخاطب را نشان کرده‌اند
+     */
+    public function favoritedByUsers()
+    {
+        return $this->belongsToMany(User::class, 'contact_favorites')->withTimestamps();
+    }
+}
+
+// -------------------------------------------------------------
+// همچنین متد زیر را به مدل کاربر (app/Models/User.php) اضافه نمایید:
+// -------------------------------------------------------------
+/*
+public function favoriteContacts()
+{
+    return $this->belongsToMany(\\App\\Models\\Contact::class, 'contact_favorites')->withTimestamps();
+}
+*/`,
+
+  favMigration: `// database/migrations/xxxx_xx_xx_create_contact_favorites_table.php
+use Illuminate\\Database\\Migrations\\Migration;
+use Illuminate\\Database\\Schema\\Blueprint;
+use Illuminate\\Support\\Facades\\Schema;
+
+return new class extends Migration
+{
+    /**
+     * جدول رابطه نشان‌شده‌ها (علاقه‌مندی‌ها) به ازای هر شناسه کاربر (userId)
+     * هر کاربر دارای نشان‌شده‌های کاملاً مستقل و دائمی در دیتابیس است.
+     */
+    public function up(): void
+    {
+        Schema::create('contact_favorites', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignId('contact_id')->constrained('contacts')->cascadeOnDelete();
+            $table->timestamps();
+
+            // تضمین یکتایی: هر مخاطب برای هر کاربر حداکثر یک بار ثبت می‌گردد
+            $table->unique(['user_id', 'contact_id']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('contact_favorites');
+    }
+};`,
+
+  cors: `// config/cors.php
+// رفع خطای CORS برای برقراری ارتباط بدون مسدودی بین مرورگر و سرور وب‌سرویس
+return [
+    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'allowed_methods' => ['*'],
+    'allowed_origins' => ['*'],
+    'allowed_origins_patterns' => [],
+    'allowed_headers' => ['*'],
+    'exposed_headers' => [],
+    'max_age' => 0,
+    'supports_credentials' => false,
+];`,
+
+  migration: `// database/migrations/xxxx_xx_xx_create_contacts_table.php
+use Illuminate\\Database\\Migrations\\Migration;
+use Illuminate\\Database\\Schema\\Blueprint;
+use Illuminate\\Support\\Facades\\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('contacts', function (Blueprint $table) {
+            $table->id();
+            $table->string('contact_type')->default('internal'); // internal یا external
+            $table->string('domain_id')->nullable();
+            $table->string('domain_name')->nullable();
+            $table->string('company_name')->nullable(); // شرکت طرف قرارداد (برای برون‌سازمانی)
+            $table->string('personnel_code')->nullable(); // کد پرسنلی الزامی پرسنل
+            $table->string('prefix_title')->default('mr'); // mr, ms, location
+            $table->string('first_name'); // نام یا نام مکان
+            $table->string('last_name')->nullable();  // نام خانوادگی
+            $table->string('job_title')->nullable(); // سمت سازمانی
+            $table->string('department')->nullable(); // واحد سازمانی / دپارتمان
+            $table->string('location')->nullable(); // موقعیت (ساختمان/اتاق)
+            $table->json('mobiles')->nullable(); // شماره‌های همراه
+            $table->boolean('is_mobile_public')->default(false); // نمایش عمومی همراه
+            $table->json('personal_mobiles')->nullable();
+            $table->json('landlines')->nullable(); // خط تلفن ثابت و داخلی
+            $table->string('email')->nullable(); // ایمیل
+            $table->text('description')->nullable(); // توضیحات
+            $table->longText('avatar')->nullable(); // تصویر آواتار
+            $table->boolean('has_ldap_account')->default(false);
+            $table->string('ldap_username')->nullable();
+            
+            // کاربر ثبت‌کننده (با قابلیت nullOnDelete جهت تست و جلوگیری از خطای Foreign Key)
+            $table->foreignId('created_by_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->string('created_by_user_name')->nullable();
+            $table->boolean('is_public')->default(true); // مخاطب عمومی سازمانی
+            $table->timestamps();
+
+            // توجه: وضعیت نشان‌شده‌های هر کاربر در جدول رابط contact_favorites نگهداری می‌شود
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('contacts');
+    }
+};`,
+
+  controller: `// app/Http/Controllers/Api/ContactController.php
+namespace App\\Http\\Controllers\\Api;
+
+use App\\Http\\Controllers\\Controller;
+use App\\Models\\Contact;
+use Illuminate\\Http\\Request;
+
+class ContactController extends Controller
+{
+    /**
+     * دریافت لیست مخاطبین (با وضعیت اختصاصی نشان‌شده کاربر لاگین‌شده)
+     */
+    public function index(Request $request)
+    {
+        $user = $request->user();
+        $query = Contact::query();
+
+        // اگر کاربر احراز هویت شده و ادمین نباشد، شماره‌های عمومی یا ثبت‌شده توسط خودش را می‌بیند
+        if ($user && !($user->is_admin ?? false) && ($user->role ?? '') !== 'admin') {
+            $query->where(function($q) use ($user) {
+                $q->where('created_by_user_id', $user->id)
+                  ->orWhere('is_public', true);
+            });
         }
-        if (!$domain && !empty($domainName)) {
-            $domain = DB::table('ldap_domains')->where('name', $domainName)->first();
-        }
-        if (!$domain) {
-            $domain = DB::table('ldap_domains')->where('is_default', true)->first() ?: DB::table('ldap_domains')->first();
+
+        if ($request->filled('department') && $request->department !== 'all') {
+            $query->where('department', $request->department);
         }
 
-        if (!$domain) {
-            return response()->json(['status' => 'error', 'message' => 'هیچ دامین فعالی در سیستم یافت نشد.'], 404);
+        if ($request->filled('search')) {
+            $s = $request->search;
+            $query->where(function($q) use ($s) {
+                $q->where('first_name', 'like', "%{$s}%")
+                  ->orWhere('last_name', 'like', "%{$s}%")
+                  ->orWhere('job_title', 'like', "%{$s}%")
+                  ->orWhere('personnel_code', 'like', "%{$s}%")
+                  ->orWhere('location', 'like', "%{$s}%");
+            });
         }
 
-        $ldapHost = $domain->host;
-        $ldapPort = (int)($domain->port ?: 389);
-        $ldapDomain = $domain->name;
-        $baseDn = $domain->base_dn ?: 'DC=parszarasa,DC=local';
+        // استخراج شناسه‌های نشان‌شده کاربر لاگین‌شده از جدول رابط contact_favorites
+        $userFavIds = $user ? $user->favoriteContacts()->pluck('contacts.id')->toArray() : [];
 
-        if (!function_exists('ldap_connect')) {
-            return response()->json(['status' => 'error', 'message' => 'اکستنشن php-ldap روی سرور فعال نیست.'], 500);
-        }
+        $contacts = $query->orderBy('first_name')->get()->map(function ($contact) use ($userFavIds) {
+            $contact->is_favorite = in_array($contact->id, $userFavIds);
+            return $contact;
+        });
 
-        $ldapConn = @ldap_connect($ldapHost, $ldapPort);
-        if (!$ldapConn) {
-            return response()->json(['status' => 'error', 'message' => "امکان اتصال به سرور دامین {$ldapHost} وجود ندارد."], 500);
-        }
+        return response()->json($contacts);
+    }
 
-        ldap_set_option($ldapConn, LDAP_OPT_PROTOCOL_VERSION, 3);
-        ldap_set_option($ldapConn, LDAP_OPT_REFERRALS, 0);
-        ldap_set_option($ldapConn, LDAP_OPT_NETWORK_TIMEOUT, 5);
-
-        $bindSuccessful = false;
-        $cleanUsername = str_contains($username, '@') ? explode('@', $username)[0] : $username;
-        if (str_contains($cleanUsername, '\\')) {
-            $cleanUsername = explode('\\', $cleanUsername)[1];
-        }
-
-        $upn = $cleanUsername . '@' . $ldapDomain;
-        if (@ldap_bind($ldapConn, $upn, $password)) {
-            $bindSuccessful = true;
-        }
-
-        if (!$bindSuccessful) {
-            $netbios = explode('.', $ldapDomain)[0];
-            $downLevelLogon = $netbios . '\\' . $cleanUsername;
-            if (@ldap_bind($ldapConn, $downLevelLogon, $password)) {
-                $bindSuccessful = true;
-            }
-        }
-
-        if (!$bindSuccessful && !empty($domain->bind_user) && !empty($domain->bind_password)) {
-            $adminBind = @ldap_bind($ldapConn, $domain->bind_user, $domain->bind_password);
-            if ($adminBind) {
-                $filter = "(&(objectClass=user)(|(sAMAccountName=" . ldap_escape($cleanUsername, '', LDAP_ESCAPE_FILTER) . ")(userPrincipalName=" . ldap_escape($upn, '', LDAP_ESCAPE_FILTER) . ")))";
-                $search = @ldap_search($ldapConn, $baseDn, $filter, ['dn']);
-                if ($search) {
-                    $entries = @ldap_get_entries($ldapConn, $search);
-                    if ($entries && $entries['count'] > 0) {
-                        $userDn = $entries[0]['dn'];
-                        if (@ldap_bind($ldapConn, $userDn, $password)) {
-                            $bindSuccessful = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!$bindSuccessful) {
-            @ldap_close($ldapConn);
-            return response()->json([
-                'status'  => 'error',
-                'message' => "نام کاربری یا کلمه عبور در دامین «{$domain->display_name}» نادرست است."
-            ], 401);
-        }
-
-        $displayName = $cleanUsername;
-        $department  = 'پرسنل سازمانی';
-        $extension   = '';
-        $email       = strtolower($cleanUsername) . '@' . strtolower($ldapDomain);
-
-        $filter = "(&(objectClass=user)(|(sAMAccountName=" . ldap_escape($cleanUsername, '', LDAP_ESCAPE_FILTER) . ")(userPrincipalName=" . ldap_escape($upn, '', LDAP_ESCAPE_FILTER) . ")))";
-        $attributes = ['displayName', 'givenName', 'sn', 'department', 'ipPhone', 'ipphone', 'otherIpPhone', 'telephoneNumber', 'mail'];
-        $search = @ldap_search($ldapConn, $baseDn, $filter, $attributes);
-
-        if ($search) {
-            $entries = @ldap_get_entries($ldapConn, $search);
-            if ($entries && $entries['count'] > 0) {
-                $u = $entries[0];
-                if (!empty($u['displayname'][0])) {
-                    $displayName = $u['displayname'][0];
-                } elseif (!empty($u['givenname'][0]) && !empty($u['sn'][0])) {
-                    $displayName = $u['givenname'][0] . ' ' . $u['sn'][0];
-                }
-                if (!empty($u['department'][0])) {
-                    $department = $u['department'][0];
-                }
-                if (!empty($u['ipphone'][0])) {
-                    $extension = trim($u['ipphone'][0]);
-                } elseif (!empty($u['otheripphone'][0])) {
-                    $extension = trim($u['otheripphone'][0]);
-                } elseif (!empty($u['telephonenumber'][0])) {
-                    $extension = trim($u['telephonenumber'][0]);
-                }
-                if (!empty($u['mail'][0])) {
-                    $email = $u['mail'][0];
-                }
-            }
-        }
-
-        @ldap_close($ldapConn);
-
-        $adminUsers = env('ADMIN_LDAP_USERS', 'admin,administrator,sarrafi,f.akbari');
-        $adminList = array_map('trim', array_map('strtolower', explode(',', $adminUsers)));
-        $isAdmin = in_array(strtolower($cleanUsername), $adminList);
-        $resolvedRole = $isAdmin ? 'admin' : 'staff';
-
-        // ثبت یا همگام‌سازی در جدول users دیتابیس تا جدول contact_favorites به شناسه واقعی کاربر متصل شود
-        $dbUser = User::where('email', $email)
-            ->orWhere('username', $cleanUsername)
-            ->first();
-
-        if (!$dbUser) {
-            $dbUser = User::create([
-                'name'     => $displayName,
-                'username' => $cleanUsername,
-                'email'    => $email,
-                'password' => bcrypt(str_random(16)),
-                'role'     => $resolvedRole,
-            ]);
-        } else {
-            // به‌روزرسانی نقش و مشخصات کاربر لاگین‌شده بر اساس لیست ADMIN_LDAP_USERS
-            $dbUser->role = $resolvedRole;
-            $dbUser->username = $cleanUsername;
-            if (!empty($displayName)) {
-                $dbUser->name = $displayName;
-            }
-            $dbUser->save();
-        }
-
-        // صدور توکن Sanctum یا توکن تصادفی در صورت عدم استفاده از Sanctum
-        $token = method_exists($dbUser, 'createToken')
-            ? $dbUser->createToken('ldap-auth')->plainTextToken
-            : bin2hex(random_bytes(32));
-
-        return response()->json([
-            'status' => 'success',
-            'token'  => $token,
-            'user'   => [
-                'id'                  => $dbUser->id,
-                'name'                => $displayName,
-                'username'            => $cleanUsername,
-                'email'               => $email,
-                'personnel_code'      => '',
-                'role'                => $isAdmin ? 'admin' : 'staff',
-                'department'          => $department,
-                'domain'              => $domain->name,
-                'domain_name'         => $domain->name,
-                'domain_display_name' => $domain->display_name ?? $domain->name,
-                'auth_method'         => 'ldap',
-                'extension'           => $extension,
-            ]
+    /**
+     * ثبت مخاطب جدید
+     */
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'first_name'   => 'required|string|max:150',
+            'last_name'    => 'nullable|string|max:150',
+            'prefix_title' => 'nullable|string',
+            'mobiles'      => 'nullable|array',
+            'landlines'    => 'nullable|array',
         ]);
 
-    } catch (\Throwable $e) {
-        return response()->json([
-            'status'  => 'error',
-            'message' => 'خطای سرور در احراز هویت: ' . $e->getMessage()
-        ], 500);
-    }
-});
+        $data = $request->all();
+        if ($request->user()) {
+            $data['created_by_user_id'] = $request->user()->id;
+            $data['created_by_user_name'] = $request->user()->name ?? 'کاربر سیستم';
+        }
 
-/*
-|--------------------------------------------------------------------------
-| ۷. واحدهای سازمانی (Departments)
-|--------------------------------------------------------------------------
-*/
+        $contact = Contact::create($data);
+        return response()->json($contact, 201);
+    }
+
+    /**
+     * نمایش اطلاعات یک مخاطب
+     */
+    public function show(Contact $contact)
+    {
+        return response()->json($contact);
+    }
+
+    /**
+     * ویرایش مخاطب
+     */
+    public function update(Request $request, Contact $contact)
+    {
+        $validated = $request->validate([
+            'first_name' => 'required|string|max:150',
+            'last_name'  => 'nullable|string|max:150',
+        ]);
+
+        $contact->update($request->all());
+        return response()->json($contact);
+    }
+
+    /**
+     * حذف مخاطب
+     */
+    public function destroy(Contact $contact)
+    {
+        $contact->delete();
+        return response()->json(['message' => 'مخاطب با موفقیت حذف گردید.']);
+    }
+
+    /**
+     * تغییر وضعیت نشان‌شده / علاقه‌مندی به ازای کاربر لاگین‌شده (Toggle Favorite)
+     */
+    public function favorite(Request $request, Contact $contact)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['message' => 'کاربر احراز هویت نشده است.'], 401);
+        }
+
+        // بررسی و معکوس‌سازی وضعیت در جدول رابط contact_favorites
+        $isFavorited = $user->favoriteContacts()->where('contact_id', $contact->id)->exists();
+        if ($isFavorited) {
+            $user->favoriteContacts()->detach($contact->id);
+            $newStatus = false;
+        } else {
+            $user->favoriteContacts()->attach($contact->id);
+            $newStatus = true;
+        }
+
+        $contact->is_favorite = $newStatus;
+        return response()->json([
+            'status' => 'success',
+            'contact_id' => $contact->id,
+            'is_favorite' => $newStatus,
+            'message' => $newStatus ? 'به نشان‌شده‌ها اضافه شد.' : 'از نشان‌شده‌ها حذف شد.',
+        ]);
+    }
+}`,
+
+  ldapAuth: `// app/Http/Controllers/Api/AuthController.php
+// احراز هویت دامین با اکتیودایرکتوری (Directory Service)
+namespace App\\Http\\Controllers\\Api;
+
+use App\\Http\\Controllers\\Controller;
+use App\\Models\\LdapDomain;
+use App\\Models\\User;
+use Illuminate\\Http\\Request;
+use LdapRecord\\Connection;
+
+class AuthController extends Controller
+{
+    public function loginWithLdap(Request $request)
+    {
+        $request->validate([
+            'domain_id' => 'required|exists:ldap_domains,id',
+            'username'  => 'required|string',
+            'password'  => 'required|string',
+        ]);
+
+        $domain = LdapDomain::findOrFail($request->domain_id);
+
+        // ساخت کانکشن پویا به دامین انتخاب شده توسط کاربر
+        $connection = new Connection([
+            'hosts'    => [$domain->host],
+            'port'     => $domain->port,
+            'base_dn'  => $domain->base_dn,
+            'use_ssl'  => $domain->encryption === 'ssl',
+            'use_tls'  => $domain->encryption === 'tls',
+        ]);
+
+        // تست اعتبارسنجی با نام کاربری و رمز در Active Directory
+        $userPrincipal = $request->username . '@' . $domain->name;
+        if (!$connection->auth()->attempt($userPrincipal, $request->password)) {
+            return response()->json(['message' => 'نام کاربری یا رمز عبور دامین نادرست است.'], 401);
+        }
+
+        // سینک یا ایجاد کاربر محلی در جدول users
+        $user = User::firstOrCreate(
+            ['username' => $request->username, 'domain' => $domain->name],
+            ['name' => $request->username, 'role' => 'staff']
+        );
+
+        $token = $user->createToken('auth-token')->plainTextToken;
+        return response()->json(['user' => $user, 'token' => $token]);
+    }
+}`,
+
+  routes: `// routes/api.php
+use App\\Http\\Controllers\\Api\\ContactController;
+use App\\Http\\Controllers\\Api\\DepartmentController;
+use App\\Http\\Controllers\\Api\\AuthController;
+use App\\Http\\Controllers\\Api\\LdapDomainController;
+use App\\Http\\Controllers\\Api\\VoipController;
+
+// 1. ورود یکپارچه با حساب Active Directory
+Route::post('/login/ldap', [AuthController::class, 'loginWithLdap']);
+
+// دریافت لیست عمومی واحدها (جهت استفاده در فیلترها و فرم‌ها)
 Route::get('/departments', [DepartmentController::class, 'index']);
-Route::post('/departments', [DepartmentController::class, 'store']);
-Route::put('/departments/{department}', [DepartmentController::class, 'update']);
-Route::delete('/departments/{department}', [DepartmentController::class, 'destroy']);
-Route::post('/departments/sync', [DepartmentController::class, 'sync']);
+
+// 2. مسیرهای دارای احراز هویت (Sanctum)
+Route::middleware('auth:sanctum')->group(function () {
+    // مخاطبین با تفکیک دسترسی پرسنل و ادمین
+    Route::apiResource('contacts', ContactController::class);
+    // تغییر وضعیت نشان‌شده اختصاصی کاربر
+    Route::post('contacts/{contact}/favorite', [ContactController::class, 'favorite']);
+
+    // مدیریت واحدهای سازمانی در دیتابیس (ادمین)
+    Route::apiResource('departments', DepartmentController::class)->except(['index']);
+    Route::post('departments/sync', [DepartmentController::class, 'sync']);
+
+    // مدیریت دامین‌های LDAP (منحصراً برای ادمین)
+    Route::apiResource('ldap-domains', LdapDomainController::class);
+    Route::post('ldap-domains/{domain}/test', [LdapDomainController::class, 'testConnection']);
+    Route::post('ldap-domains/{domain}/test-voip', [LdapDomainController::class, 'testVoipConnection']);
+
+    // ۳. قابلیت تماس با یک کلیک با سرور ایزابل (Click-to-Call Originate)
+    Route::post('voip/originate', [VoipController::class, 'originate']);
+});`,
+
+  voipController: `// app/Http/Controllers/Api/VoipController.php
+// پیاده‌سازی Click-to-Call با پروتکل Asterisk Manager Interface (AMI) ایزابل
+namespace App\\Http\\Controllers\\Api;
+
+use App\\Http\\Controllers\\Controller;
+use App\\Models\\LdapDomain;
+use Illuminate\\Http\\Request;
+
+class VoipController extends Controller
+{
+    public function originate(Request $request)
+    {
+        $request->validate([
+            'target_number' => 'required|string',
+        ]);
+
+        $user = $request->user();
+        // خواندن شماره داخلی کاربر که در زمان ورود از Active Directory خوانده شده
+        $callerExt = $user->extension; 
+        if (!$callerExt) {
+            return response()->json([
+                'message' => 'شماره داخلی تلفن رومیزی در حساب اکتیودایرکتوری شما (ipPhone) تعریف نشده است.'
+            ], 422);
+        }
+
+        // واکشی سرور ایزابل مرتبط با دامین کاربر
+        $domain = LdapDomain::where('name', $user->domain)->first();
+        $host = $domain->voip_server_host ?? '192.168.10.25';
+        $port = $domain->voip_ami_port ?? 5038;
+        $userAmi = $domain->voip_ami_username ?? 'phonebook_ami';
+        $secretAmi = $domain->voip_ami_secret ?? 'IssabelSecret!2026';
+        $context = $domain->voip_context ?? 'from-internal';
+        $tech = $domain->voip_channel_tech ?? 'SIP';
+
+        // باز کردن سوکت TCP به سرور ایزابل روی پورت AMI
+        $socket = @fsockopen($host, $port, $errno, $errstr, 4);
+        if (!$socket) {
+            return response()->json(['message' => "خطا در برقراری ارتباط با سرور ایزابل: {$errstr}"], 500);
+        }
+
+        // احراز هویت با AMI
+        fputs($socket, "Action: Login\\r\\nUserName: {$userAmi}\\r\\nSecret: {$secretAmi}\\r\\n\\r\\n");
+        
+        // ارسال دستور Originate برای زنگ خوردن تلفن رومیزی کاربر
+        $channel = "{$tech}/{$callerExt}";
+        $cmd = "Action: Originate\\r\\n"
+             . "Channel: {$channel}\\r\\n"
+             . "Exten: {$request->target_number}\\r\\n"
+             . "Context: {$context}\\r\\n"
+             . "Priority: 1\\r\\n"
+             . "CallerID: Phonebook <{$callerExt}>\\r\\n"
+             . "Timeout: 30000\\r\\n\\r\\n";
+        
+        fputs($socket, $cmd);
+        fputs($socket, "Action: Logoff\\r\\n\\r\\n");
+        fclose($socket);
+
+        return response()->json([
+            'success' => true,
+            'message' => "دستور تماس ارسال شد. تلفن رومیزی شما (داخلی {$callerExt}) در حال زنگ خوردن است.",
+        ]);
+    }
+}`,
+
+  issabelManagerConf: `; /etc/asterisk/manager.conf (در سرور ایزابل)
+; برای اعطای دسترسی به وب‌سرویس سرور این بلوک را در انتهای فایل قرار دهید:
+[phonebook_ami]
+secret = Issabel@2026!secret
+deny = 0.0.0.0/0.0.0.0
+permit = 192.168.10.0/255.255.255.0 ; رنج IP سرور وب‌سرویس
+read = originate,system,call
+write = originate,system,call`,
+
+  amiBlfListener: `// app/Console/Commands/AsteriskBlfListener.php
+// شنود بلادرنگ رویدادهای ExtensionStatus استریسک/ایزابل بدون سربار روی سرور (Event-Driven Daemon)
+namespace App\\Console\\Commands;
+
+use Illuminate\\Console\\Command;
+use App\\Events\\ExtensionStatusChanged;
+
+class AsteriskBlfListener extends Command
+{
+    protected $signature = 'voip:blf-listen';
+    protected $description = 'Listen to Asterisk AMI ExtensionStatus events and broadcast via WebSocket (Zero Server Polling Overhead)';
+
+    public function handle()
+    {
+        $host = config('voip.ami_host', '192.168.10.25');
+        $port = config('voip.ami_port', 5038);
+        $user = config('voip.ami_user', 'phonebook_ami');
+        $secret = config('voip.ami_secret', 'Issabel@2026!secret');
+
+        $this->info("Connecting to Issabel/Asterisk AMI at {$host}:{$port}...");
+        $socket = fsockopen($host, $port, $errno, $errstr, 10);
+        if (!$socket) {
+            $this->error("Failed to connect: {$errstr}");
+            return 1;
+        }
+
+        // ورود به AMI با دریافت اختصاصی رویدادهای call
+        fputs($socket, "Action: Login\\r\\nUserName: {$user}\\r\\nSecret: {$secret}\\r\\nEvents: call\\r\\n\\r\\n");
+
+        $buffer = '';
+        while (!feof($socket)) {
+            $line = fgets($socket, 1024);
+            $buffer .= $line;
+
+            // رویدادها در AMI با خط خالی تفکیک می‌شوند
+            if (trim($line) === '') {
+                if (str_contains($buffer, 'Event: ExtensionStatus')) {
+                    preg_match('/Exten: (\\d+)/', $buffer, $extMatch);
+                    preg_match('/Status: (-?\\d+)/', $buffer, $statusMatch);
+
+                    if (!empty($extMatch[1]) && isset($statusMatch[1])) {
+                        $ext = $extMatch[1];
+                        $statusCode = (int)$statusMatch[1];
+
+                        // تبدیل وضعیت‌های استریسک به ۳ وضعیت اختصاصی (بدون زرد/چشمک‌زن Ringing):
+                        // 0 = Idle (سبز/آزاد), 1/2 = InUse/Busy (قرمز/مشغول), 4/-1 = Unavailable (خاکستری/آفلاین)
+                        $state = match ($statusCode) {
+                            0 => 'idle',
+                            1, 2 => 'busy',
+                            default => 'offline',
+                        };
+
+                        // انتشار بلادرنگ روی وب‌سوکت به کلاینت‌های مجاز
+                        broadcast(new ExtensionStatusChanged($ext, $state));
+                        $this->line("BLF Event: Exten {$ext} => {$state}");
+                    }
+                }
+                $buffer = '';
+            }
+        }
+        fclose($socket);
+    }
+}`,
+};
