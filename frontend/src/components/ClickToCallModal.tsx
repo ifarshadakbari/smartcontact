@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { User, LdapDomain, Contact } from '../types';
-import { originateVoipCall } from '../services/apiService';
+import { originateVoipCall, hangupVoipCall, checkVoipChannelStatus } from '../services/apiService';
 
 interface ClickToCallModalProps {
   isOpen: boolean;
@@ -49,6 +49,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
   const [stage, setStage] = useState<CallStage>('ready');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
+  const [isHangingUp, setIsHangingUp] = useState(false);
 
   // Reset states when modal opens
   useEffect(() => {
@@ -58,6 +59,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
       setStage('ready');
       setErrorMessage(null);
       setCallDuration(0);
+      setIsHangingUp(false);
     }
   }, [isOpen, targetNumber, currentUser]);
 
@@ -73,6 +75,40 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
       if (timer) clearInterval(timer);
     };
   }, [stage]);
+
+  // Channel Polling: استعلام زنده وضعیت کانال از سرور VoIP تا در صورت قطع گوشی فیزیکی، تایمر و وضعیت متوقف شود
+  useEffect(() => {
+    let pollInterval: any = null;
+    if (stage === 'connected' && userDomain?.voip_enabled) {
+      let consecutiveInactiveCount = 0;
+      pollInterval = setInterval(async () => {
+        try {
+          const status = await checkVoipChannelStatus({
+            callerExtension: callerExtension.trim(),
+            domain: userDomain,
+          });
+
+          if (!status.active) {
+            consecutiveInactiveCount++;
+            if (consecutiveInactiveCount >= 2) {
+              setStage('ended');
+            }
+          } else {
+            consecutiveInactiveCount = 0;
+            if (typeof status.duration === 'number' && status.duration > 0) {
+              setCallDuration(status.duration);
+            }
+          }
+        } catch {
+          // خطاهای گذرا در پایش نادیده گرفته می‌شوند
+        }
+      }, 2500);
+    }
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [stage, callerExtension, userDomain]);
 
   if (!isOpen) return null;
 
@@ -122,11 +158,24 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     }
   };
 
-  const handleEndCall = () => {
-    setStage('ended');
-    setTimeout(() => {
-      onClose();
-    }, 1200);
+  const handleEndCall = async () => {
+    setIsHangingUp(true);
+    try {
+      if (userDomain?.voip_enabled) {
+        await hangupVoipCall({
+          callerExtension: callerExtension.trim(),
+          domain: userDomain,
+        });
+      }
+    } catch (e) {
+      console.warn('Hangup request ignored:', e);
+    } finally {
+      setIsHangingUp(false);
+      setStage('ended');
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    }
   };
 
   const isAdmin = currentUser?.role === 'admin';
@@ -208,7 +257,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
 
               <div>
                 <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[11px] text-neutral-500 block">شماره داخلی رومیزی (Extension):</span>
+                  <span className="text-[11px] font-medium text-neutral-600 block">شماره داخلی شما:</span>
                   {!isEditingExt && isAdmin && (
                     <button
                       type="button"
@@ -229,7 +278,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                       value={callerExtension}
                       onChange={(e) => setCallerExtension(e.target.value)}
                       placeholder="مثلاً 205"
-                      className="w-28 px-3 py-1.5 text-sm font-bold text-center bg-white border border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
+                      className="w-28 px-3 py-1.5 text-sm font-bold text-center text-neutral-900 bg-white border border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
                       dir="ltr"
                       autoFocus
                     />
@@ -255,9 +304,9 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                   </div>
                 ) : (
                   <div className="mt-1">
-                    <div className="inline-flex items-center justify-center min-w-[130px] px-3.5 py-1.5 bg-white rounded-lg border border-blue-200 shadow-2xs text-center">
-                      <span className="text-sm font-bold text-blue-950 tracking-wide">
-                        داخلی <span className="font-extrabold text-blue-700">{callerExtension}</span>
+                    <div className="inline-flex items-center justify-center min-w-[130px] px-4 py-1.5 bg-white rounded-lg border border-neutral-300 shadow-2xs text-center">
+                      <span className="text-sm font-bold text-neutral-900 tracking-normal">
+                        داخلی {callerExtension}
                       </span>
                     </div>
                   </div>
@@ -327,9 +376,16 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
           )}
 
           {stage === 'ended' && (
-            <div className="p-3 bg-neutral-100 border border-neutral-200 text-neutral-700 rounded-xl text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-neutral-500" />
-              <span>مکالمه با موفقیت به پایان رسید.</span>
+            <div className="p-4 bg-neutral-100 border border-neutral-300 text-neutral-800 rounded-xl text-xs flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span className="font-semibold">مکالمه با موفقیت به پایان رسید.</span>
+              </div>
+              {callDuration > 0 && (
+                <span className="text-[11px] text-neutral-500 font-mono">
+                  مدت مکالمه: {formatTimer(callDuration)}
+                </span>
+              )}
             </div>
           )}
 
@@ -364,10 +420,11 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
             <button
               type="button"
               onClick={handleEndCall}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
+              disabled={isHangingUp}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
             >
-              <PhoneOff className="w-4 h-4" />
-              <span>قطع تماس</span>
+              <PhoneOff className={`w-4 h-4 ${isHangingUp ? 'animate-spin' : ''}`} />
+              <span>{isHangingUp ? 'در حال قطع تماس...' : 'قطع تماس'}</span>
             </button>
           ) : null}
         </div>
