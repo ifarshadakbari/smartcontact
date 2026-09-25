@@ -94,7 +94,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 پُــرسا لینک
               </h1>
               <p className="text-[11px] text-neutral-500 hidden sm:block whitespace-nowrap">
-                سامانه هوشمند اطلاعات و ارتباطات سازمانی
+                سیستم هوشمند اطلاعات و ارتباطات درون و برون سازمانی
               </p>
             </div>
           </div>
