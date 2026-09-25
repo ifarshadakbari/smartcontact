@@ -417,10 +417,13 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
       </div>
 
       {/* Footer info */}
-      <div className="p-3 border-t border-neutral-200 bg-neutral-50 shrink-0">
+      <div className="p-2.5 border-t border-neutral-200 bg-neutral-50 shrink-0">
         <div className="flex items-center justify-between text-[11px] text-neutral-500">
-          <span>پروتکل: AMI Event-Driven</span>
-          <span className="text-emerald-700 font-medium">اتصال به سانترال</span>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="font-medium text-neutral-600">مانیتورینگ بلادرنگ (Live BLF)</span>
+          </div>
+          <span className="text-[10px] text-neutral-400 font-mono">AMI Event-Driven</span>
         </div>
       </div>
     </aside>
