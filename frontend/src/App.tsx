@@ -51,6 +51,8 @@ import {
   toggleFavoriteOnApi,
   fetchDomainsFromApi,
   saveDomainsToApi,
+  fetchBlfPermissionsFromApi,
+  saveBlfPermissionsToApi,
 } from './services/apiService';
 import {
   getStoredBlfPermissions,
@@ -282,6 +284,19 @@ export default function App() {
         setDepartments((prev) => deduplicateDepartments(prev && prev.length > 0 ? prev : getStoredDepartments()));
       });
 
+    // 4. Fetch live BLF Permissions from database
+    fetchBlfPermissionsFromApi(laravelConfig)
+      .then((apiPerms) => {
+        if (!isMounted) return;
+        if (Array.isArray(apiPerms) && apiPerms.length > 0) {
+          setBlfPermissions(apiPerms);
+          saveStoredBlfPermissions(apiPerms);
+        }
+      })
+      .catch((err) => {
+        console.warn('Could not fetch BLF permissions from live API (using local cache):', err);
+      });
+
     return () => {
       isMounted = false;
     };
@@ -358,18 +373,40 @@ export default function App() {
 
   const monitoredExtensionsData: BlfExtensionInfo[] = useMemo(() => {
     if (!canViewBlf || !currentUserBlfPerm) return [];
+    
+    let extsToMonitor = currentUserBlfPerm.monitoredExtensions;
+    // اگر کاربر مدیر است و هیچ داخلی خاصی مشخص نکرده، تمام داخلی‌های دامین خود را مانیتور کند
+    if (currentUser?.role === 'admin' && (!extsToMonitor || extsToMonitor.length === 0)) {
+      const allDomExts = contacts
+        .filter((c) => c.contact_type === 'internal')
+        .flatMap((c) => (c.landlines || []).map((l) => (l.extension || '').trim()))
+        .filter(Boolean);
+      extsToMonitor = Array.from(new Set(allDomExts));
+    }
+
     return getMonitoredExtensionsData(
-      currentUserBlfPerm.monitoredExtensions,
+      extsToMonitor,
       contacts,
       blfStates,
       currentUserBlfPerm.domainId
     );
-  }, [canViewBlf, currentUserBlfPerm, contacts, blfStates]);
+  }, [canViewBlf, currentUserBlfPerm, contacts, blfStates, currentUser]);
 
-  const handleSaveBlfPermissions = (newPermissions: UserBlfPermission[]) => {
+  const handleSaveBlfPermissions = async (newPermissions: UserBlfPermission[]) => {
     setBlfPermissions(newPermissions);
     saveStoredBlfPermissions(newPermissions);
-    showToast('تنظیمات و دسترسی‌های BLF با موفقیت ذخیره شد.');
+
+    // Save to Laravel Database
+    try {
+      const res = await saveBlfPermissionsToApi(newPermissions, laravelConfig);
+      if (res.success) {
+        showToast('سطوح دسترسی BLF با موفقیت در دیتابیس ثبت و اعمال شد.');
+      } else {
+        showToast(`تنظیمات ذخیره شد (پیام دیتابیس: ${res.message})`);
+      }
+    } catch {
+      showToast('تنظیمات در حافظه محلی ذخیره شد اما اتصال به دیتابیس با وقفه مواجه شد.');
+    }
   };
 
   const handleFilterByCompany = (companyName: string) => {
