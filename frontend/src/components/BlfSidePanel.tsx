@@ -230,16 +230,11 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
           </div>
         </div>
 
-        {/* Domain & PBX Indicator Badge */}
+        {/* Domain Indicator Badge */}
         {userDomainObj && (
-          <div className="mt-2.5 px-2.5 py-1.5 rounded-lg bg-neutral-800/90 border border-neutral-700/80 flex items-center justify-between text-[11px]">
-            <div className="flex items-center gap-1.5 text-neutral-300">
-              <Network className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-              <span className="font-semibold text-neutral-100">{userDomainObj.display_name}</span>
-            </div>
-            <span className="font-mono text-[10px] text-neutral-300 bg-neutral-950 px-1.5 py-0.5 rounded border border-neutral-700/60" dir="ltr">
-              {userDomainObj.voip_server_host || userDomainObj.name}
-            </span>
+          <div className="mt-2.5 px-2.5 py-1.5 rounded-lg bg-neutral-800/90 border border-neutral-700/80 flex items-center gap-2 text-[11px]">
+            <Network className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+            <span className="font-semibold text-neutral-100">{userDomainObj.display_name}</span>
           </div>
         )}
 
