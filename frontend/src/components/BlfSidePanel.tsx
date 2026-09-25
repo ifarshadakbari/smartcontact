@@ -18,6 +18,7 @@ import {
   Network,
 } from 'lucide-react';
 import { BlfState, BlfExtensionInfo, User, Contact, LdapDomain } from '../types';
+import { extractExtensionFromLandline } from '../services/blfService';
 
 interface BlfSidePanelProps {
   currentUser: User | null;
@@ -79,14 +80,18 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
 
   const handleExtensionClick = (extInfo: BlfExtensionInfo) => {
     // Find matching contact in database
+    const cleanExt = String(extInfo.extension).trim();
     const matched = allContacts.find((c) => {
-      if (extInfo.contactId && c.id === extInfo.contactId) return true;
-      return c.landlines?.some((l) => l.extension === extInfo.extension);
+      if (extInfo.contactId && String(c.id) === String(extInfo.contactId)) return true;
+      return (
+        c.landlines?.some((l) => extractExtensionFromLandline(l) === cleanExt) ||
+        (c.personnel_code && String(c.personnel_code).trim() === cleanExt)
+      );
     });
 
     if (matched) {
       if (extInfo.state === 'idle') {
-        onInitiateCall(extInfo.extension, matched, `تماس مستقیم BLF با داخلی ${extInfo.extension}`);
+        onInitiateCall(cleanExt, matched, `تماس مستقیم BLF با داخلی ${cleanExt}`);
       } else if (onSelectContact) {
         onSelectContact(matched);
       }
