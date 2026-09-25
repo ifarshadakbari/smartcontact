@@ -458,6 +458,200 @@ Route::post('/voip/originate', function (Request $request) {
 
 /*
 |--------------------------------------------------------------------------
+| ۵.۳. قطع تماس تلفنی جاری از طریق وب (Hangup via AMI)
+|--------------------------------------------------------------------------
+*/
+Route::post('/voip/hangup', function (Request $request) {
+    $callerExtension = trim($request->input('caller_extension', ''));
+    $domainId = $request->input('domain_id');
+    $host = trim($request->input('host', ''));
+    $port = (int)$request->input('port', 5038);
+    $username = trim($request->input('username', ''));
+    $secret = $request->input('secret');
+    $channelTech = trim($request->input('channel_tech', 'SIP'));
+
+    if (empty($callerExtension)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'شماره داخلی مشخص نیست.'
+        ], 422);
+    }
+
+    if (!empty($domainId) && (empty($host) || empty($username) || $secret === null || $secret === '')) {
+        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
+        if ($savedDomain) {
+            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
+            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
+            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
+            if ($secret === null || $secret === '') $secret = $savedDomain->voip_ami_secret ?? '';
+            if (empty($channelTech)) $channelTech = $savedDomain->voip_channel_tech ?? 'SIP';
+        }
+    }
+
+    if (empty($host) || empty($username)) {
+        return response()->json(['status' => 'error', 'message' => 'تنظیمات سرور VoIP ناقص است.'], 422);
+    }
+
+    $fp = @fsockopen($host, $port, $errno, $errstr, 3);
+    if (!$fp) {
+        return response()->json(['status' => 'error', 'message' => 'عدم دسترسی به سرور VoIP.'], 500);
+    }
+
+    stream_set_timeout($fp, 3);
+    fgets($fp, 1024);
+
+    $loginPacket = "Action: Login\r\n" .
+                   "Username: {$username}\r\n" .
+                   "Secret: {$secret}\r\n\r\n";
+    fwrite($fp, $loginPacket);
+
+    // بررسی لاگین
+    $auth = false;
+    while (!feof($fp)) {
+        $l = trim(fgets($fp, 1024));
+        if ($l === '') break;
+        if (stripos($l, 'Response: Success') !== false) $auth = true;
+    }
+
+    if (!$auth) {
+        @fclose($fp);
+        return response()->json(['status' => 'error', 'message' => 'احراز هویت ناموفق'], 401);
+    }
+
+    // ابتدا لیست کانال‌ها را می‌گیریم تا نام دقیق کانال استریسک را بیابیم
+    $reqId = 'chanlist_' . time();
+    $chanPacket = "Action: CoreShowChannels\r\n" .
+                  "ActionID: {$reqId}\r\n\r\n";
+    fwrite($fp, $chanPacket);
+
+    $channelsToHangup = [];
+    while (!feof($fp)) {
+        $l = trim(fgets($fp, 1024));
+        if (stripos($l, 'EventList: Complete') !== false) break;
+        if (stripos($l, 'Channel:') === 0) {
+            $ch = trim(substr($l, 8));
+            // اگر کانال مربوط به این داخلی باشد (مثلاً SIP/208-0000001a یا PJSIP/208-xxxx)
+            if (preg_match('#(?:SIP|PJSIP)/' . preg_quote($callerExtension, '#') . '[-_]#i', $ch)) {
+                $channelsToHangup[] = $ch;
+            }
+        }
+    }
+
+    // اگر از CoreShowChannels کانالی پیدا نشد، فرمت پیش‌فرض را امتحان می‌کنیم
+    if (empty($channelsToHangup)) {
+        $channelsToHangup[] = "{$channelTech}/{$callerExtension}";
+    }
+
+    $hungUpCount = 0;
+    foreach ($channelsToHangup as $ch) {
+        $hPacket = "Action: Hangup\r\n" .
+                   "Channel: {$ch}\r\n\r\n";
+        fwrite($fp, $hPacket);
+        $hungUpCount++;
+    }
+
+    @fwrite($fp, "Action: Logoff\r\n\r\n");
+    @fclose($fp);
+
+    return response()->json([
+        'status' => 'success',
+        'message' => 'دستور قطع تماس به مرکز تلفن ارسال شد.',
+        'hungUpCount' => $hungUpCount,
+    ]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| ۵.۴. استعلام زنده وضعیت کانال مکالمه داخلی (Active Call Check)
+|--------------------------------------------------------------------------
+*/
+Route::post('/voip/channel-status', function (Request $request) {
+    $callerExtension = trim($request->input('caller_extension', ''));
+    $domainId = $request->input('domain_id');
+    $host = trim($request->input('host', ''));
+    $port = (int)$request->input('port', 5038);
+    $username = trim($request->input('username', ''));
+    $secret = $request->input('secret');
+
+    if (empty($callerExtension)) {
+        return response()->json(['active' => false]);
+    }
+
+    if (!empty($domainId) && (empty($host) || empty($username) || $secret === null || $secret === '')) {
+        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
+        if ($savedDomain) {
+            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
+            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
+            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
+            if ($secret === null || $secret === '') $secret = $savedDomain->voip_ami_secret ?? '';
+        }
+    }
+
+    if (empty($host) || empty($username)) {
+        return response()->json(['active' => false]);
+    }
+
+    $fp = @fsockopen($host, $port, $errno, $errstr, 2);
+    if (!$fp) {
+        return response()->json(['active' => false, 'error' => 'server_unreachable']);
+    }
+
+    stream_set_timeout($fp, 2);
+    fgets($fp, 1024);
+
+    $loginPacket = "Action: Login\r\n" .
+                   "Username: {$username}\r\n" .
+                   "Secret: {$secret}\r\n\r\n";
+    fwrite($fp, $loginPacket);
+
+    $auth = false;
+    while (!feof($fp)) {
+        $l = trim(fgets($fp, 1024));
+        if ($l === '') break;
+        if (stripos($l, 'Response: Success') !== false) $auth = true;
+    }
+
+    if (!$auth) {
+        @fclose($fp);
+        return response()->json(['active' => false, 'error' => 'auth_failed']);
+    }
+
+    $reqId = 'stat_' . time();
+    $chanPacket = "Action: CoreShowChannels\r\n" .
+                  "ActionID: {$reqId}\r\n\r\n";
+    fwrite($fp, $chanPacket);
+
+    $isActive = false;
+    $channelName = null;
+    $duration = 0;
+
+    while (!feof($fp)) {
+        $l = trim(fgets($fp, 1024));
+        if (stripos($l, 'EventList: Complete') !== false) break;
+        if (stripos($l, 'Channel:') === 0) {
+            $ch = trim(substr($l, 8));
+            if (preg_match('#(?:SIP|PJSIP)/' . preg_quote($callerExtension, '#') . '[-_]#i', $ch)) {
+                $isActive = true;
+                $channelName = $ch;
+            }
+        }
+        if ($isActive && stripos($l, 'Duration:') === 0) {
+            $duration = (int)trim(substr($l, 9));
+        }
+    }
+
+    @fwrite($fp, "Action: Logoff\r\n\r\n");
+    @fclose($fp);
+
+    return response()->json([
+        'active' => $isActive,
+        'channel' => $channelName,
+        'duration' => $duration,
+    ]);
+});
+
+/*
+|--------------------------------------------------------------------------
 | ۶. احراز هویت و ورود کاربران بر اساس دامین انتخابی (LDAP Login)
 |--------------------------------------------------------------------------
 */
