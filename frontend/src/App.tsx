@@ -53,11 +53,13 @@ import {
   saveDomainsToApi,
   fetchBlfPermissionsFromApi,
   saveBlfPermissionsToApi,
+  fetchBlfExtensionStatesFromApi,
 } from './services/apiService';
 import {
   getStoredBlfPermissions,
   saveStoredBlfPermissions,
   getStoredBlfStates,
+  saveStoredBlfStates,
   subscribeToBlfUpdates,
   getMonitoredExtensionsData,
   getAllAvailableInternalExtensions,
@@ -500,6 +502,62 @@ export default function App() {
       currentUserBlfPerm.domainId
     );
   }, [canViewBlf, currentUserBlfPerm, contacts, blfStates, currentUser, ldapDomains]);
+
+  // Active live polling of BLF extension states from server PBX / Asterisk AMI
+  useEffect(() => {
+    if (!canViewBlf || !currentUserBlfPerm) return;
+
+    let isMounted = true;
+    const targetDomainObj = ldapDomains.find(
+      (d) => String(d.id) === String(currentUserBlfPerm.domainId) || d.name === currentUserBlfPerm.domainName
+    ) || ldapDomains[0];
+
+    const pollStates = async () => {
+      try {
+        const exts = (monitoredExtensionsData || []).map((e) => e.extension);
+        if (exts.length === 0) return;
+
+        const liveStates = await fetchBlfExtensionStatesFromApi({
+          domainId: currentUserBlfPerm.domainId,
+          extensions: exts,
+          domain: targetDomainObj,
+          config: laravelConfig,
+        });
+
+        if (isMounted && liveStates && Object.keys(liveStates).length > 0) {
+          setBlfStates((prev) => {
+            let hasChanged = false;
+            const next = { ...prev };
+            Object.entries(liveStates).forEach(([ext, val]) => {
+              const currentVal = next[ext];
+              if (!currentVal || currentVal.state !== val.state || currentVal.durationSec !== val.durationSec) {
+                hasChanged = true;
+              }
+              next[ext] = {
+                ...(next[ext] || {}),
+                ...val,
+              };
+            });
+            if (hasChanged) {
+              saveStoredBlfStates(next);
+              return next;
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        // Transient network error
+      }
+    };
+
+    pollStates();
+    const interval = setInterval(pollStates, 3000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [canViewBlf, currentUserBlfPerm, ldapDomains, laravelConfig, monitoredExtensionsData.length]);
 
   const handleSaveBlfPermissions = async (newPermissions: UserBlfPermission[]) => {
     setBlfPermissions(newPermissions);
