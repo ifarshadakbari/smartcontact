@@ -171,6 +171,78 @@ export function saveStoredBlfStates(states: Record<string, { state: BlfState; du
   }
 }
 
+export function findBlfStateForExtension(
+  blfStates: Record<string, any>,
+  ext: string
+): { state: BlfState; durationSec?: number; callerNumber?: string; isDnd?: boolean } {
+  if (!blfStates || typeof blfStates !== 'object') return { state: 'idle', durationSec: 0 };
+  const clean = String(ext).trim();
+
+  // ۱. بررسی مستقیم کلید در مپ
+  let rawVal = blfStates[clean];
+
+  // ۲. بررسی در صورت وجود پیشوند تکنولوژی یا نام کانتکست (مانند SIP/101 یا 101@from-internal)
+  if (!rawVal) {
+    for (const [key, val] of Object.entries(blfStates)) {
+      const cleanKey = key
+        .replace(/^(SIP|PJSIP|IAX2|DAHDI|Local)\//i, '')
+        .replace(/@[^:]+$/, '')
+        .replace(/-[0-9a-fA-F]+$/, '')
+        .trim();
+      if (cleanKey === clean) {
+        rawVal = val;
+        break;
+      }
+    }
+  }
+
+  if (!rawVal) return { state: 'idle', durationSec: 0 };
+
+  const rawStateStr = String(
+    (typeof rawVal === 'object' && rawVal !== null
+      ? rawVal.state || rawVal.Status || rawVal.StatusText || rawVal.status
+      : rawVal) || 'idle'
+  ).toLowerCase().trim();
+
+  let state: BlfState = 'idle';
+  if (
+    rawStateStr === 'busy' ||
+    rawStateStr === 'inuse' ||
+    rawStateStr === 'hold' ||
+    rawStateStr === 'onhold' ||
+    rawStateStr === 'talking' ||
+    rawStateStr === '1' ||
+    rawStateStr === '2' ||
+    rawStateStr === '9' ||
+    rawStateStr === '16'
+  ) {
+    state = 'busy';
+  } else if (rawStateStr === 'ringing' || rawStateStr === 'ring' || rawStateStr === '8') {
+    state = 'busy';
+  } else if (
+    rawStateStr === 'offline' ||
+    rawStateStr === 'unavailable' ||
+    rawStateStr === '4' ||
+    rawStateStr === '-1'
+  ) {
+    state = 'offline';
+  }
+
+  const durationSec =
+    typeof rawVal === 'object' && typeof rawVal.durationSec === 'number'
+      ? rawVal.durationSec
+      : state === 'busy'
+      ? 1
+      : 0;
+
+  return {
+    state,
+    durationSec,
+    callerNumber: typeof rawVal === 'object' ? rawVal.callerNumber : undefined,
+    isDnd: typeof rawVal === 'object' ? Boolean(rawVal.isDnd) : false,
+  };
+}
+
 export function getMonitoredExtensionsData(
   monitoredExtensions: string[],
   contacts: Contact[],
@@ -186,7 +258,7 @@ export function getMonitoredExtensionsData(
       (c.personnel_code && String(c.personnel_code).trim() === cleanExt)
     );
 
-    const stateInfo = blfStates[cleanExt] || { state: 'idle' };
+    const stateInfo = findBlfStateForExtension(blfStates, cleanExt);
     let name = `داخلی ${cleanExt}`;
     if (matchedContact) {
       const lName =
@@ -198,13 +270,14 @@ export function getMonitoredExtensionsData(
 
     return {
       extension: cleanExt,
-      state: stateInfo.state || 'idle',
+      state: stateInfo.state,
       name,
       department: matchedContact?.department || '',
       jobTitle: matchedContact?.job_title || '',
       contactId: matchedContact?.id,
       domain_id: matchedContact?.domain_id || domainId,
       durationSec: stateInfo.durationSec || 0,
+      callerNumber: stateInfo.callerNumber,
       isDnd: Boolean(stateInfo.isDnd),
     };
   });
@@ -220,4 +293,47 @@ export function subscribeToBlfUpdates(callback: BlfListener): () => void {
   return () => {
     blfListeners.delete(callback);
   };
+}
+
+export function setExtensionBlfState(
+  ext: string,
+  state: BlfState,
+  durationSec: number = 0,
+  callerNumber?: string
+): void {
+  const current = getStoredBlfStates();
+  const cleanExt = String(ext).trim();
+  const updated = {
+    ...current,
+    [cleanExt]: {
+      state,
+      durationSec: state === 'busy' ? durationSec : 0,
+      callerNumber,
+    },
+  };
+  saveStoredBlfStates(updated);
+  blfListeners.forEach((fn) => fn(updated));
+}
+
+export function mergeBlfStates(
+  incoming: Record<string, { state: BlfState; durationSec?: number; callerNumber?: string }>
+): Record<string, { state: BlfState; durationSec?: number; callerNumber?: string }> {
+  const current = getStoredBlfStates();
+  const next = { ...current };
+
+  Object.entries(incoming).forEach(([ext, info]) => {
+    if (!info) return;
+    const cleanExt = String(ext).trim();
+    const prev = next[cleanExt] || { state: 'idle' };
+    next[cleanExt] = {
+      ...prev,
+      ...info,
+      state: info.state || prev.state || 'idle',
+      durationSec: typeof info.durationSec === 'number' ? info.durationSec : (info.state === 'busy' ? (prev.durationSec || 0) : 0),
+    };
+  });
+
+  saveStoredBlfStates(next);
+  blfListeners.forEach((fn) => fn(next));
+  return next;
 }
