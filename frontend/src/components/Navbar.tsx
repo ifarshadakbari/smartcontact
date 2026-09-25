@@ -123,6 +123,31 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* User Profile & Dropdown Menu */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Quick BLF Button in Navbar for users with permission */}
+            {canViewBlf && onToggleBlf && (
+              <button
+                type="button"
+                onClick={onToggleBlf}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer select-none ${
+                  isBlfOpen
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-200'
+                }`}
+                title="مشاهده وضعیت بلادرنگ داخلی‌ها (BLF)"
+              >
+                <Activity className={`w-3.5 h-3.5 ${isBlfOpen ? 'animate-pulse' : 'text-emerald-600'}`} />
+                <span className="hidden sm:inline">مانیتورینگ BLF</span>
+                <span className="sm:hidden">BLF</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    isBlfOpen ? 'bg-emerald-700 text-white' : 'bg-emerald-200 text-emerald-900'
+                  }`}
+                >
+                  {isBlfOpen ? 'فعال' : 'روشن'}
+                </span>
+              </button>
+            )}
+
             {/* Authenticated User */}
             {user ? (
               <div className="relative" ref={dropdownRef}>
