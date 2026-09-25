@@ -135,9 +135,13 @@ export interface BlfExtensionInfo {
 }
 
 export interface UserBlfPermission {
-  userId: number;
+  userId: number | string;
   userName: string;
+  userUsername?: string;
+  userEmail?: string;
   userExtension?: string;
+  personnelCode?: string;
+  contactId?: number | string;
   department?: string;
   domainId?: string | number;
   domainName?: string;
