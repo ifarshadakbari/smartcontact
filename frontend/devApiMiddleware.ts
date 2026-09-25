@@ -55,6 +55,20 @@ let departments: any[] = [
   { id: '8', name: 'روابط عمومی و امور بین‌الملل', code: 'PR', sort_order: 8 },
 ];
 
+let blfPermissions: any[] = [
+  {
+    userId: 1,
+    userName: 'مدیر ارشد سامانه (Admin)',
+    department: 'فناوری اطلاعات و زیرساخت',
+    domainId: '1',
+    domainName: 'دامین مرکزی (پارس زرآسا)',
+    canViewBlf: true,
+    canViewAll: true,
+    monitoredExtensions: ['101', '102', '103', '104', '105', '201', '202'],
+    role: 'admin',
+  },
+];
+
 let contacts: any[] = [
   {
     id: 1,
@@ -608,6 +622,41 @@ export function createApiMiddleware() {
         auth_method: cleanUser === 'admin' ? 'local' : 'ldap',
         extension,
       },
+    });
+  });
+
+  // BLF Permissions
+  router.get('/blf/permissions', (req, res) => {
+    res.json({
+      status: 'success',
+      data: blfPermissions,
+    });
+  });
+
+  router.post('/blf/permissions', (req, res) => {
+    const incoming = req.body.permissions;
+    if (Array.isArray(incoming)) {
+      blfPermissions = incoming.map((p: any) => ({
+        userId: Number(p.userId || p.user_id) || (p.userId || p.user_id),
+        userName: p.userName || p.user_name || 'کاربر سامانه',
+        userUsername: p.userUsername || p.user_username || '',
+        userEmail: p.userEmail || p.user_email || '',
+        userExtension: p.userExtension || p.user_extension || '',
+        personnelCode: p.personnelCode || p.personnel_code || '',
+        contactId: p.contactId || p.contact_id || p.userId || p.user_id,
+        department: p.department || '',
+        domainId: String(p.domainId || p.domain_id || '1'),
+        domainName: p.domainName || p.domain_name || '',
+        canViewBlf: p.canViewBlf !== undefined ? Boolean(p.canViewBlf) : (Array.isArray(p.monitoredExtensions) && p.monitoredExtensions.length > 0),
+        canViewAll: Boolean(p.canViewAll || p.can_view_all),
+        monitoredExtensions: Array.isArray(p.monitoredExtensions) ? p.monitoredExtensions : (Array.isArray(p.monitored_extensions) ? p.monitored_extensions : []),
+        role: p.role || 'staff',
+      }));
+    }
+    res.json({
+      status: 'success',
+      message: 'سطوح دسترسی BLF با موفقیت ذخیره شد.',
+      data: blfPermissions,
     });
   });
 
