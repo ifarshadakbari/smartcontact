@@ -20,8 +20,14 @@ echo -e "${BLUE}====================================================${NC}"
 echo -e "\n${YELLOW}[1/5] Fetching latest changes from GitHub...${NC}"
 cd "$PROJECT_ROOT"
 git config --global --add safe.directory "$PROJECT_ROOT" 2>/dev/null || true
+
+# ذخیره هش کامیت فعلی برای مقایسه تغییرات پکیج‌ها
+PREV_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+
 git fetch origin "$BRANCH"
 git reset --hard "origin/$BRANCH"
+
+NEW_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
 
 # Fix monorepo if needed
 if [ ! -f "$FRONTEND_DIR/package.json" ] && [ -f "$PROJECT_ROOT/package.json" ]; then
@@ -41,7 +47,14 @@ if [ ! -f ".env" ]; then
     fi
 fi
 
-composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+# فقط در صورت تغییر composer.json یا عدم وجود vendor اجرا شود
+if [ ! -d "vendor" ] || [ -z "$PREV_COMMIT" ] || git diff --name-only "$PREV_COMMIT" "$NEW_COMMIT" | grep -q 'backend/composer\.\(json\|lock\)'; then
+    echo -e "${YELLOW}📦 Composer dependencies changed. Running composer install...${NC}"
+    composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+else
+    echo -e "${GREEN}⚡ Skipping composer install (no dependency changes).${NC}"
+fi
+
 php artisan migrate --force
 php artisan optimize:clear
 php artisan config:cache
@@ -52,7 +65,19 @@ echo -e "${GREEN}✔ Backend ready.${NC}"
 # 3. Frontend
 echo -e "\n${YELLOW}[3/5] Updating & Building Frontend (React/Vite)...${NC}"
 cd "$FRONTEND_DIR"
-npm install --no-audit --no-fund
+
+# اطمینان از تنظیم رجیستری پایدار npm
+npm config set registry https://registry.npmjs.org/ 2>/dev/null || true
+
+# فقط در صورت تغییر package.json یا عدم وجود node_modules اجرا شود
+if [ ! -d "node_modules" ] || [ -z "$PREV_COMMIT" ] || git diff --name-only "$PREV_COMMIT" "$NEW_COMMIT" | grep -q 'frontend/package.*\.json'; then
+    echo -e "${YELLOW}📦 Frontend packages changed. Running npm install...${NC}"
+    npm install --no-audit --no-fund --prefer-offline
+else
+    echo -e "${GREEN}⚡ Skipping npm install (no package changes).${NC}"
+fi
+
+echo -e "🔨 Building Vite bundle..."
 npm run build
 echo -e "${GREEN}✔ Frontend build completed.${NC}"
 
