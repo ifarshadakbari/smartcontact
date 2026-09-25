@@ -278,6 +278,254 @@ Route::post('/blf/permissions', function (Request $request) {
 
 /*
 |--------------------------------------------------------------------------
+| ۴.۳. استعلام بلادرنگ وضعیت خطوط و اشغالی تلفن‌ها (BLF / Asterisk AMI)
+|--------------------------------------------------------------------------
+*/
+Route::match(['get', 'post'], '/blf/states', function (Request $request) {
+    try {
+        $domainId = $request->input('domain_id');
+        $extensions = $request->input('extensions', []);
+        if (!is_array($extensions)) {
+            $extensions = !empty($extensions) ? explode(',', (string)$extensions) : [];
+        }
+
+        $cleanExts = [];
+        foreach ($extensions as $ext) {
+            $e = trim((string)$ext);
+            if ($e !== '') {
+                $cleanExts[] = $e;
+            }
+        }
+
+        $host = trim($request->input('host', ''));
+        $port = (int)$request->input('port', 5038);
+        $username = trim($request->input('username', ''));
+        $secret = $request->input('secret');
+        $context = trim($request->input('context', 'from-internal'));
+
+        // اگر اطلاعات هاست یا AMI ارسال نشده باشد، از دیتابیس لود می‌شود
+        if (empty($host) || empty($username) || $secret === null || $secret === '') {
+            $query = DB::table('ldap_domains');
+            if (!empty($domainId)) {
+                $query->where('id', $domainId);
+            } else {
+                $query->where('is_active', true)->orderByDesc('is_default');
+            }
+            $domainRecord = $query->first();
+            if ($domainRecord) {
+                if (empty($host)) $host = $domainRecord->voip_server_host ?? '';
+                if (empty($port)) $port = (int)($domainRecord->voip_ami_port ?? 5038);
+                if (empty($username)) $username = $domainRecord->voip_ami_username ?? '';
+                if ($secret === null || $secret === '') $secret = $domainRecord->voip_ami_secret ?? '';
+                if (empty($context)) $context = $domainRecord->voip_context ?? 'from-internal';
+            }
+        }
+
+        $states = [];
+        foreach ($cleanExts as $ext) {
+            $states[$ext] = [
+                'state' => 'idle',
+                'durationSec' => 0,
+                'callerNumber' => null,
+            ];
+        }
+
+        $amiConnected = false;
+        if (!empty($host) && !empty($username)) {
+            $fp = @fsockopen($host, $port, $errno, $errstr, 2);
+            if ($fp) {
+                stream_set_timeout($fp, 3);
+                @fgets($fp, 512); // Banner
+
+                $loginPacket = "Action: Login\r\nUsername: {$username}\r\nSecret: {$secret}\r\n\r\n";
+                fwrite($fp, $loginPacket);
+
+                $loginOk = false;
+                for ($i = 0; $i < 20 && !feof($fp); $i++) {
+                    $line = fgets($fp, 512);
+                    if ($line === false || trim($line) === '') break;
+                    if (stripos($line, 'Response: Success') !== false || stripos($line, 'Authentication accepted') !== false) {
+                        $loginOk = true;
+                    }
+                }
+
+                if ($loginOk) {
+                    $amiConnected = true;
+
+                    // ۱. دستور استعلام تمامی هینت‌ها در استریسک / ایزابل (core show hints)
+                    fwrite($fp, "Action: Command\r\nCommand: core show hints\r\n\r\n");
+                    $hintsBuffer = '';
+                    while (!feof($fp)) {
+                        $line = fgets($fp, 1024);
+                        if ($line === false) break;
+                        $hintsBuffer .= $line;
+                        if (str_contains($line, '--END COMMAND--')) break;
+                    }
+
+                    $hintLines = explode("\n", $hintsBuffer);
+                    foreach ($hintLines as $hLine) {
+                        if (preg_match('/^\s*([0-9a-zA-Z_-]+)@([^\s]+)\s*:\s*.*State:([A-Za-z0-9_-]+)/i', $hLine, $m)) {
+                            $ext = trim($m[1]);
+                            $rawSt = strtolower(trim($m[3]));
+
+                            $mappedState = 'idle';
+                            if (in_array($rawSt, ['inuse', 'busy', 'hold', 'onhold'])) {
+                                $mappedState = 'busy';
+                            } elseif (in_array($rawSt, ['ringing', 'ringinuse'])) {
+                                $mappedState = 'busy';
+                            } elseif (in_array($rawSt, ['unavailable', 'unknown', 'de-registered'])) {
+                                $mappedState = 'offline';
+                            }
+
+                            if (isset($states[$ext]) || empty($cleanExts) || in_array($ext, $cleanExts)) {
+                                $states[$ext] = [
+                                    'state' => $mappedState,
+                                    'durationSec' => $mappedState === 'busy' ? max($states[$ext]['durationSec'] ?? 0, 1) : 0,
+                                    'callerNumber' => $states[$ext]['callerNumber'] ?? null,
+                                ];
+                            }
+                        }
+                    }
+
+                    // ۲. دستور بررسی کانال‌های فعال و در حال مکالمه (core show channels concise)
+                    fwrite($fp, "Action: Command\r\nCommand: core show channels concise\r\n\r\n");
+                    $chanBuffer = '';
+                    while (!feof($fp)) {
+                        $line = fgets($fp, 1024);
+                        if ($line === false) break;
+                        $chanBuffer .= $line;
+                        if (str_contains($line, '--END COMMAND--')) break;
+                    }
+
+                    $chanLines = explode("\n", $chanBuffer);
+                    foreach ($chanLines as $cLine) {
+                        $parts = explode('!', trim($cLine));
+                        if (count($parts) >= 5) {
+                            $channel = $parts[0];
+                            $exten = $parts[2] ?? '';
+                            $callerId = $parts[7] ?? '';
+                            $duration = isset($parts[11]) ? (int)$parts[11] : 0;
+
+                            if (preg_match('/^(?:SIP|PJSIP|IAX2|DAHDI|Local)\/([0-9a-zA-Z_-]+?)(?:-[0-9a-fA-F]+|\/.*)?$/', $channel, $cm)) {
+                                $chExt = $cm[1];
+                                $states[$chExt] = [
+                                    'state' => 'busy',
+                                    'durationSec' => max($duration, 1),
+                                    'callerNumber' => $exten ?: $callerId,
+                                ];
+                            }
+
+                            if (!empty($exten) && (isset($states[$exten]) || in_array($exten, $cleanExts))) {
+                                $states[$exten] = [
+                                    'state' => 'busy',
+                                    'durationSec' => max($duration, 1),
+                                    'callerNumber' => $callerId,
+                                ];
+                            }
+                        }
+                    }
+
+                    // ۳. بررسی تکی وضعیت داخلی‌های اعلام‌شده از طریق ExtensionState برای اطمینان مضاعف
+                    foreach ($cleanExts as $ext) {
+                        if (!isset($states[$ext]) || $states[$ext]['state'] === 'idle') {
+                            $extAction = "Action: ExtensionState\r\nExten: {$ext}\r\nContext: {$context}\r\nActionID: {$ext}\r\n\r\n";
+                            fwrite($fp, $extAction);
+
+                            $extResp = '';
+                            while (!feof($fp)) {
+                                $line = fgets($fp, 512);
+                                if ($line === false || trim($line) === '') break;
+                                $extResp .= $line;
+                            }
+
+                            if (preg_match('/Status:\s*(-?[0-9]+)/i', $extResp, $sm)) {
+                                $statusCode = (int)$sm[1];
+                                if (in_array($statusCode, [1, 2, 8, 9, 16])) {
+                                    $states[$ext] = [
+                                        'state' => 'busy',
+                                        'durationSec' => max($states[$ext]['durationSec'] ?? 0, 1),
+                                        'callerNumber' => null,
+                                    ];
+                                } elseif ($statusCode === 4 || $statusCode === -1) {
+                                    $states[$ext] = [
+                                        'state' => 'offline',
+                                        'durationSec' => 0,
+                                    ];
+                                }
+                            }
+                        }
+                    }
+
+                    @fwrite($fp, "Action: Logoff\r\n\r\n");
+                }
+                @fclose($fp);
+            }
+        }
+
+        // ادغام تماس‌های فعال ثبت‌شده از طریق سامانه در کش
+        $cacheKey = 'blf_live_states_' . ($domainId ?: 'all');
+        $cachedCalls = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
+        if (is_array($cachedCalls)) {
+            foreach ($cachedCalls as $ext => $info) {
+                if (isset($info['state']) && $info['state'] === 'busy') {
+                    $states[$ext] = [
+                        'state' => 'busy',
+                        'durationSec' => isset($info['durationSec']) ? $info['durationSec'] : 1,
+                        'callerNumber' => $info['callerNumber'] ?? null,
+                    ];
+                }
+            }
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'ami_connected' => $amiConnected,
+            'data' => $states,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'خطا در دریافت وضعیت خطوط: ' . $e->getMessage(),
+            'data' => [],
+        ], 500);
+    }
+});
+
+Route::post('/blf/toggle-state', function (Request $request) {
+    try {
+        $extension = trim((string)$request->input('extension', ''));
+        $state = $request->input('state');
+        $domainId = $request->input('domain_id', 'all');
+
+        if (empty($extension)) {
+            return response()->json(['status' => 'error', 'message' => 'شماره داخلی الزامی است.'], 422);
+        }
+
+        $cacheKey = 'blf_live_states_' . ($domainId ?: 'all');
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
+        $currentState = $cached[$extension]['state'] ?? 'idle';
+        $newState = $state ?: ($currentState === 'busy' ? 'idle' : 'busy');
+
+        $cached[$extension] = [
+            'state' => $newState,
+            'durationSec' => $newState === 'busy' ? 10 : 0,
+            'callerNumber' => $newState === 'busy' ? 'مکالمه تستی' : null,
+        ];
+
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $cached, 3600);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "وضعیت داخلی {$extension} به «{$newState}» تغییر یافت.",
+            'data' => $cached,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
 | ۵. تست ارتباط واقعی با سرور اکتیودایرکتوری (پورت و سوکت شبکه)
 |--------------------------------------------------------------------------
 */
@@ -604,6 +852,23 @@ Route::post('/voip/originate', function (Request $request) {
     @fclose($fp);
 
     if ($originateSuccess) {
+        // ثبت در کش بلادرنگ خطوط جهت نمایش فوری وضعیت اشغالی در مانیتورینگ BLF
+        $cacheKey = 'blf_live_states_' . ($domainId ?: 'all');
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
+        $cached[$callerExtension] = [
+            'state' => 'busy',
+            'durationSec' => 1,
+            'callerNumber' => $targetNumber,
+        ];
+        if (!empty($targetNumber) && strlen($targetNumber) <= 5 && !str_starts_with($targetNumber, '0')) {
+            $cached[$targetNumber] = [
+                'state' => 'busy',
+                'durationSec' => 1,
+                'callerNumber' => $callerExtension,
+            ];
+        }
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $cached, 120);
+
         return response()->json([
             'status' => 'success',
             'message' => "دستور تماس به سرور VoIP ({$host}) ارسال شد. گوشی رومیزی شما ({$channel}) زنگ خواهد خورد.",
@@ -714,6 +979,14 @@ Route::post('/voip/hangup', function (Request $request) {
 
     @fwrite($fp, "Action: Logoff\r\n\r\n");
     @fclose($fp);
+
+    // پاکسازی وضعیت اشغال از کش BLF
+    $cacheKey = 'blf_live_states_' . ($domainId ?: 'all');
+    $cached = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
+    if (isset($cached[$callerExtension])) {
+        unset($cached[$callerExtension]);
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $cached, 120);
+    }
 
     return response()->json([
         'status' => 'success',
