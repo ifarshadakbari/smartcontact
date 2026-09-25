@@ -146,16 +146,28 @@ export const ContactCard: React.FC<ContactCardProps> = ({
           {/* Favorite Star */}
           <button
             type="button"
+            disabled={!currentUser}
             onClick={(e) => {
               e.stopPropagation();
+              if (!currentUser) return;
               onToggleFavorite(contact.id);
             }}
-            className="text-neutral-300 hover:text-blue-600 transition p-1 cursor-pointer"
-            title={contact.is_favorite ? 'حذف از نشان‌شده‌ها' : 'افزودن به نشان‌شده‌ها'}
+            className={`p-1 transition ${
+              !currentUser
+                ? 'text-neutral-300 opacity-40 cursor-not-allowed'
+                : 'text-neutral-300 hover:text-blue-600 cursor-pointer'
+            }`}
+            title={
+              !currentUser
+                ? 'برای نشان‌گذاری مخاطبین ابتدا وارد حساب کاربری شوید'
+                : contact.is_favorite
+                ? 'حذف از نشان‌شده‌ها'
+                : 'افزودن به نشان‌شده‌ها'
+            }
           >
             <Star
               className={`w-4 h-4 ${
-                contact.is_favorite
+                contact.is_favorite && currentUser
                   ? 'fill-blue-600 text-blue-600'
                   : 'stroke-[1.5]'
               }`}
