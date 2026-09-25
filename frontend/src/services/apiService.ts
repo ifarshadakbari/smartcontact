@@ -1,4 +1,4 @@
-import { Contact, LaravelConfig, User, LdapDomain, Department, UserBlfPermission } from '../types';
+import { Contact, LaravelConfig, User, LdapDomain, Department, UserBlfPermission, BlfState } from '../types';
 import { isAdminOnlyLandline } from '../utils/phoneUtils';
 
 const STORAGE_VERSION = 'v11';
@@ -429,6 +429,129 @@ export const checkVoipChannelStatus = async (params: {
     return { active: false };
   } catch {
     return { active: false };
+  }
+};
+
+// Fetch live BLF (Busy / Idle / Ringing / Offline) extension states from Asterisk AMI via backend
+export const fetchBlfExtensionStatesFromApi = async (params: {
+  domainId?: string | number;
+  extensions: string[];
+  domain?: LdapDomain;
+  config?: LaravelConfig;
+}): Promise<Record<string, { state: BlfState; durationSec?: number; callerNumber?: string }>> => {
+  const laravelCfg = params.config || getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/blf/states`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({
+        domain_id: params.domainId || params.domain?.id,
+        extensions: params.extensions,
+        host: params.domain?.voip_server_host,
+        port: params.domain?.voip_ami_port || 5038,
+        username: params.domain?.voip_ami_username,
+        secret: params.domain?.voip_ami_secret,
+        context: params.domain?.voip_context || 'from-internal',
+      }),
+    });
+
+    if (!res.ok) return {};
+    const json = await res.json().catch(() => ({}));
+    if (json.status === 'success' && json.data && typeof json.data === 'object') {
+      const normalized: Record<string, { state: BlfState; durationSec?: number; callerNumber?: string }> = {};
+
+      Object.entries(json.data).forEach(([rawKey, rawVal]: [string, any]) => {
+        if (!rawVal) return;
+        const cleanExt = rawKey
+          .replace(/^(SIP|PJSIP|IAX2|DAHDI|Local)\//i, '')
+          .replace(/@[^:]+$/, '')
+          .replace(/-[0-9a-fA-F]+$/, '')
+          .trim();
+
+        const rawStateStr = String(
+          (typeof rawVal === 'object' && rawVal !== null
+            ? rawVal.state || rawVal.Status || rawVal.StatusText || rawVal.status
+            : rawVal) || 'idle'
+        ).toLowerCase().trim();
+
+        let state: BlfState = 'idle';
+        if (
+          rawStateStr === 'busy' ||
+          rawStateStr === 'inuse' ||
+          rawStateStr === 'hold' ||
+          rawStateStr === 'onhold' ||
+          rawStateStr === 'talking' ||
+          rawStateStr === '1' ||
+          rawStateStr === '2' ||
+          rawStateStr === '9' ||
+          rawStateStr === '16'
+        ) {
+          state = 'busy';
+        } else if (rawStateStr === 'ringing' || rawStateStr === 'ring' || rawStateStr === '8') {
+          state = 'busy';
+        } else if (
+          rawStateStr === 'offline' ||
+          rawStateStr === 'unavailable' ||
+          rawStateStr === '4' ||
+          rawStateStr === '-1'
+        ) {
+          state = 'offline';
+        }
+
+        const duration =
+          typeof rawVal === 'object' && typeof rawVal.durationSec === 'number'
+            ? rawVal.durationSec
+            : state === 'busy'
+            ? 1
+            : 0;
+
+        const callerNumber =
+          typeof rawVal === 'object' && rawVal.callerNumber ? String(rawVal.callerNumber) : undefined;
+
+        normalized[cleanExt] = { state, durationSec: duration, callerNumber };
+        // همچنین کلید خام را هم نگه‌داری می‌کنیم تا دسترسی با هر فرمتی میسر باشد
+        if (rawKey !== cleanExt) {
+          normalized[rawKey] = { state, durationSec: duration, callerNumber };
+        }
+      });
+
+      return normalized;
+    }
+    return {};
+  } catch (e) {
+    console.warn('Could not fetch live BLF states from API:', e);
+    return {};
+  }
+};
+
+// Toggle BLF state for an extension (testing/manual override)
+export const toggleBlfExtensionStateApi = async (
+  extension: string,
+  state?: BlfState,
+  config?: LaravelConfig
+): Promise<boolean> => {
+  const laravelCfg = config || getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/blf/toggle-state`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({ extension, state }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 };
 
