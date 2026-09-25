@@ -131,6 +131,7 @@ export interface BlfExtensionInfo {
   contactId?: number | string;
   domain_id?: string | number;
   durationSec?: number;
+  callerNumber?: string;
   isDnd?: boolean;
 }
 
