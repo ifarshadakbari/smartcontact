@@ -464,17 +464,7 @@ export default function App() {
      currentUser?.role === 'admin')
   );
 
-  // Automatically open the BLF panel when user has BLF permission
-  const blfAutoOpenedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (canViewBlf && currentUser) {
-      const userKey = `${currentUser.id}_${currentUser.username || currentUser.name}`;
-      if (blfAutoOpenedRef.current !== userKey) {
-        blfAutoOpenedRef.current = userKey;
-        setIsBlfPanelOpen(true);
-      }
-    }
-  }, [canViewBlf, currentUser]);
+  // BLF panel remains closed by default upon login (user opens manually when needed)
 
   const monitoredExtensionsData: BlfExtensionInfo[] = useMemo(() => {
     if (!canViewBlf || !currentUserBlfPerm) return [];
@@ -659,6 +649,7 @@ export default function App() {
     setSelectedCategory('all');
     setSearchQuery('');
     setFavoritesOnly(false);
+    setIsBlfPanelOpen(false);
     setScopeFilter('all');
     setSelectedContact(null);
   };
@@ -736,6 +727,11 @@ export default function App() {
 
   // Favorite Toggle (Permanently stored per user in database / localStorage)
   const handleToggleFavorite = (id: number | string) => {
+    if (!currentUser) {
+      showToast('برای نشان‌گذاری مخاطبین لطفاً ابتدا وارد حساب کاربری خود شوید');
+      return;
+    }
+
     const targetIdStr = String(id);
     let newFavState = false;
 
@@ -1329,21 +1325,27 @@ export default function App() {
               {/* Favorites Filter Toggle */}
               <button
                 type="button"
-                onClick={() => setFavoritesOnly(!favoritesOnly)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition cursor-pointer ${
-                  favoritesOnly
-                    ? 'bg-blue-50 text-blue-700 border-blue-300'
-                    : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'
+                disabled={!currentUser}
+                onClick={() => {
+                  if (!currentUser) return;
+                  setFavoritesOnly(!favoritesOnly);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition ${
+                  !currentUser
+                    ? 'bg-neutral-50 text-neutral-400 border-neutral-200 opacity-60 cursor-not-allowed'
+                    : favoritesOnly
+                    ? 'bg-blue-50 text-blue-700 border-blue-300 cursor-pointer'
+                    : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50 cursor-pointer'
                 }`}
-                title="نمایش شماره‌های نشان‌شده"
+                title={!currentUser ? 'برای مشاهده نشان‌شده‌ها ابتدا وارد حساب کاربری شوید' : 'نمایش شماره‌های نشان‌شده'}
               >
                 <Star
                   className={`w-3.5 h-3.5 ${
-                    favoritesOnly ? 'fill-blue-600 text-blue-600' : 'text-neutral-500'
+                    favoritesOnly && currentUser ? 'fill-blue-600 text-blue-600' : 'text-neutral-400'
                   }`}
                 />
                 <span>نشان‌شده‌ها</span>
-                {favoritesCount > 0 && (
+                {currentUser && favoritesCount > 0 && (
                   <span className="bg-neutral-200 text-neutral-700 px-1.5 py-0.2 rounded-full text-[10px]">
                     {favoritesCount}
                   </span>
