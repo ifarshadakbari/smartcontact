@@ -182,6 +182,264 @@ Route::post('/domains/test-ldap', function (Request $request) {
 
 /*
 |--------------------------------------------------------------------------
+| ۵.۱. تست اتصال واقعی به سرور VoIP / Asterisk AMI ایزابل
+|--------------------------------------------------------------------------
+*/
+Route::post('/domains/test-voip', function (Request $request) {
+    $host = trim($request->input('host', ''));
+    $port = (int)$request->input('port', 5038);
+    $username = trim($request->input('username', ''));
+    $secret = $request->input('secret');
+    $domainId = $request->input('domain_id');
+
+    // اگر سکرت در درخواست نبود و domain_id ارسال شده بود، از دیتابیس بخواند
+    if (($secret === null || $secret === '') && !empty($domainId)) {
+        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
+        if ($savedDomain) {
+            $secret = $savedDomain->voip_ami_secret ?? '';
+            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
+            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
+            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
+        }
+    }
+
+    if (empty($host)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'آدرس سرور ایزابل (IP یا Hostname) تعیین نشده است.'
+        ], 422);
+    }
+
+    if (empty($username)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'نام کاربری AMI (Manager Username) الزامی است.'
+        ], 422);
+    }
+
+    $startTime = microtime(true);
+    $timeout = 4; // ثانیه
+    $fp = @fsockopen($host, $port, $errno, $errstr, $timeout);
+
+    if (!$fp) {
+        $latency = round((microtime(true) - $startTime) * 1000);
+        return response()->json([
+            'status' => 'error',
+            'message' => "عدم امکان اتصال به سرویس AMI ایزابل در {$host}:{$port} - علت: " . ($errstr ?: "پورت در دسترس نیست یا فایروال مسدود است ($errno)"),
+            'latencyMs' => $latency
+        ], 500);
+    }
+
+    stream_set_timeout($fp, 4);
+
+    // ۱. خواندن بنر اولیه استریسک (مثلاً Asterisk Call Manager/5.0.3)
+    $banner = trim(fgets($fp, 1024));
+    if (!str_contains($banner, 'Asterisk Call Manager')) {
+        fclose($fp);
+        $latency = round((microtime(true) - $startTime) * 1000);
+        return response()->json([
+            'status' => 'error',
+            'message' => "سرویس روی پورت {$port} پاسخ استریسک استاندارد ارسال نکرد: {$banner}",
+            'latencyMs' => $latency
+        ], 500);
+    }
+
+    // ۲. ارسال پکت Login به AMI
+    $loginPacket = "Action: Login\r\n" .
+                   "Username: {$username}\r\n" .
+                   "Secret: {$secret}\r\n\r\n";
+    fwrite($fp, $loginPacket);
+
+    // ۳. خواندن پاسخ احراز هویت از استریسک
+    $responseLines = [];
+    $authSuccess = false;
+    $errorMessage = 'احراز هویت ناموفق بود.';
+
+    while (!feof($fp)) {
+        $line = trim(fgets($fp, 1024));
+        if ($line === '') {
+            break; // پایان بلوک پاسخ
+        }
+        $responseLines[] = $line;
+        if (stripos($line, 'Response: Success') !== false) {
+            $authSuccess = true;
+        }
+        if (stripos($line, 'Message:') === 0) {
+            $msg = trim(substr($line, 8));
+            if (!$authSuccess) {
+                $errorMessage = $msg;
+            }
+        }
+    }
+
+    // ارسال خروج تمیز از سوکت
+    @fwrite($fp, "Action: Logoff\r\n\r\n");
+    @fclose($fp);
+
+    $latency = round((microtime(true) - $startTime) * 1000);
+
+    if (!$authSuccess) {
+        return response()->json([
+            'status' => 'error',
+            'message' => "احراز هویت در سرویس AMI ایزابل ({$host}:{$port}) رد شد: {$errorMessage} (لطفاً نام کاربری و Secret را بررسی کنید)",
+            'latencyMs' => $latency,
+            'version' => $banner,
+        ], 401);
+    }
+
+    return response()->json([
+        'status' => 'success',
+        'message' => "اتصال موفق به سرویس AMI ایزابل ({$banner}) در {$host}:{$port} با کاربر «{$username}» تأیید شد (Authentication Accepted).",
+        'latencyMs' => $latency,
+        'version' => $banner,
+    ]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| ۵.۲. برقراری تماس تلفنی (Click to Call / Asterisk Originate)
+|--------------------------------------------------------------------------
+*/
+Route::post('/voip/originate', function (Request $request) {
+    $callerExtension = trim($request->input('caller_extension', ''));
+    $targetNumber = trim($request->input('target_number', ''));
+    $targetName = trim($request->input('target_name', ''));
+    $domainId = $request->input('domain_id');
+    $host = trim($request->input('host', ''));
+    $port = (int)$request->input('port', 5038);
+    $username = trim($request->input('username', ''));
+    $secret = $request->input('secret');
+    $context = trim($request->input('context', 'from-internal'));
+    $channelTech = trim($request->input('channel_tech', 'SIP'));
+    $autoAnswer = (bool)$request->input('auto_answer', true);
+
+    if (empty($callerExtension)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'شماره داخلی مبدأ (شماره رومیزی شما) مشخص نیست.'
+        ], 422);
+    }
+
+    if (empty($targetNumber)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'شماره مقصد تماس مشخص نیست.'
+        ], 422);
+    }
+
+    // لود تنظیمات از دیتابیس در صورت عدم ارسال در ریکوئست
+    if (!empty($domainId) && (empty($host) || empty($username) || $secret === null || $secret === '')) {
+        $savedDomain = DB::table('ldap_domains')->where('id', $domainId)->first();
+        if ($savedDomain) {
+            if (empty($host)) $host = $savedDomain->voip_server_host ?? '';
+            if (empty($port)) $port = (int)($savedDomain->voip_ami_port ?? 5038);
+            if (empty($username)) $username = $savedDomain->voip_ami_username ?? '';
+            if ($secret === null || $secret === '') $secret = $savedDomain->voip_ami_secret ?? '';
+            if (empty($context)) $context = $savedDomain->voip_context ?? 'from-internal';
+            if (empty($channelTech)) $channelTech = $savedDomain->voip_channel_tech ?? 'SIP';
+        }
+    }
+
+    if (empty($host) || empty($username)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'تنظیمات سرور VoIP برای دامین این کاربر ثبت نشده است.'
+        ], 422);
+    }
+
+    $fp = @fsockopen($host, $port, $errno, $errstr, 4);
+    if (!$fp) {
+        return response()->json([
+            'status' => 'error',
+            'message' => "عدم امکان اتصال به سرور ایزابل در {$host}:{$port} ({$errstr})"
+        ], 500);
+    }
+
+    stream_set_timeout($fp, 5);
+
+    // ۱. خواندن بنر اولیه
+    fgets($fp, 1024);
+
+    // ۲. لاگین AMI
+    $loginPacket = "Action: Login\r\n" .
+                   "Username: {$username}\r\n" .
+                   "Secret: {$secret}\r\n\r\n";
+    fwrite($fp, $loginPacket);
+
+    $authSuccess = false;
+    while (!feof($fp)) {
+        $line = trim(fgets($fp, 1024));
+        if ($line === '') break;
+        if (stripos($line, 'Response: Success') !== false) {
+            $authSuccess = true;
+        }
+    }
+
+    if (!$authSuccess) {
+        @fwrite($fp, "Action: Logoff\r\n\r\n");
+        @fclose($fp);
+        return response()->json([
+            'status' => 'error',
+            'message' => 'احراز هویت در سرویس AMI ایزابل با نام کاربری یا Secret فعلی رد شد.'
+        ], 401);
+    }
+
+    // ۳. ارسال پکت Originate
+    $channel = "{$channelTech}/{$callerExtension}";
+    $cleanTarget = preg_replace('/[^0-9]/', '', $targetNumber);
+    $callId = 'originate_' . time() . '_' . mt_rand(1000, 9999);
+
+    $originatePacket = "Action: Originate\r\n" .
+                       "Channel: {$channel}\r\n" .
+                       "Exten: {$cleanTarget}\r\n" .
+                       "Context: {$context}\r\n" .
+                       "Priority: 1\r\n" .
+                       "CallerID: {$callerExtension} <{$callerExtension}>\r\n" .
+                       "Timeout: 30000\r\n" .
+                       "Async: true\r\n" .
+                       "ActionID: {$callId}\r\n";
+
+    if ($autoAnswer) {
+        $originatePacket .= "Variable: __SIPADDHEADER=Call-Info: \\;answer-after=0\r\n";
+        $originatePacket .= "Variable: __ALERT_INFO=Ring Answer\r\n";
+    }
+    $originatePacket .= "\r\n";
+
+    fwrite($fp, $originatePacket);
+
+    // خواندن پاسخ Originate
+    $originateSuccess = false;
+    $originateMessage = 'دستور به صف استریسک ارسال شد.';
+    while (!feof($fp)) {
+        $line = trim(fgets($fp, 1024));
+        if ($line === '') break;
+        if (stripos($line, 'Response: Success') !== false) {
+            $originateSuccess = true;
+        }
+        if (stripos($line, 'Message:') === 0) {
+            $originateMessage = trim(substr($line, 8));
+        }
+    }
+
+    @fwrite($fp, "Action: Logoff\r\n\r\n");
+    @fclose($fp);
+
+    if ($originateSuccess) {
+        return response()->json([
+            'status' => 'success',
+            'message' => "دستور تماس زنده به سرور ایزابل ({$host}) ارسال شد. گوشی رومیزی شما ({$channel}) زنگ خواهد خورد.",
+            'callId' => $callId,
+        ]);
+    } else {
+        return response()->json([
+            'status' => 'error',
+            'message' => "خطا در ارسال دستور تماس به استریسک: {$originateMessage}"
+        ], 500);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
 | ۶. احراز هویت و ورود کاربران بر اساس دامین انتخابی (LDAP Login)
 |--------------------------------------------------------------------------
 */
