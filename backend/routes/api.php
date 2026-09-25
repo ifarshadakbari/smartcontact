@@ -407,18 +407,35 @@ Route::post('/voip/originate', function (Request $request) {
 
     fwrite($fp, $originatePacket);
 
-    // خواندن پاسخ Originate
+    // خواندن پاسخ‌های بازگشتی AMI به بسته Originate
     $originateSuccess = false;
-    $originateMessage = 'دستور به صف استریسک ارسال شد.';
-    while (!feof($fp)) {
+    $originateMessage = '';
+    $rawResponses = [];
+
+    // ممکن است چندین خط یا هدر و سپس خط خالی ارسال شود
+    for ($i = 0; $i < 30 && !feof($fp); $i++) {
         $line = trim(fgets($fp, 1024));
-        if ($line === '') break;
-        if (stripos($line, 'Response: Success') !== false) {
-            $originateSuccess = true;
+        if ($line === '' && !empty($rawResponses)) {
+            // یک بلوک پاسخ خوانده شد
+            if ($originateSuccess || stripos(implode(' ', $rawResponses), 'Response: Error') !== false) {
+                break;
+            }
+            continue;
         }
-        if (stripos($line, 'Message:') === 0) {
-            $originateMessage = trim(substr($line, 8));
+        if ($line !== '') {
+            $rawResponses[] = $line;
+            if (stripos($line, 'Response: Success') !== false) {
+                $originateSuccess = true;
+            }
+            if (stripos($line, 'Message:') === 0) {
+                $originateMessage = trim(substr($line, 8));
+            }
         }
+    }
+
+    $rawText = implode(' ', $rawResponses);
+    if (stripos($rawText, 'Response: Success') !== false || stripos($rawText, 'Originate successfully queued') !== false) {
+        $originateSuccess = true;
     }
 
     @fwrite($fp, "Action: Logoff\r\n\r\n");
@@ -427,13 +444,14 @@ Route::post('/voip/originate', function (Request $request) {
     if ($originateSuccess) {
         return response()->json([
             'status' => 'success',
-            'message' => "دستور تماس زنده به سرور ایزابل ({$host}) ارسال شد. گوشی رومیزی شما ({$channel}) زنگ خواهد خورد.",
+            'message' => "دستور تماس به سرور VoIP ({$host}) ارسال شد. گوشی رومیزی شما ({$channel}) زنگ خواهد خورد.",
             'callId' => $callId,
         ]);
     } else {
+        $cleanMsg = $originateMessage ?: 'عدم دریافت پاسخ معتبر از سرور VoIP';
         return response()->json([
             'status' => 'error',
-            'message' => "خطا در ارسال دستور تماس به استریسک: {$originateMessage}"
+            'message' => "خطا در ارسال دستور تماس به سرور VoIP: {$cleanMsg}"
         ], 500);
     }
 });
