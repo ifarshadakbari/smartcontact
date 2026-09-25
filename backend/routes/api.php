@@ -116,6 +116,137 @@ Route::post('/domains/sync', function (Request $request) {
 
 /*
 |--------------------------------------------------------------------------
+| ۴.۱. مدیریت و ذخیره پایدار دسترسی‌های مانیتورینگ BLF در دیتابیس
+|--------------------------------------------------------------------------
+*/
+Route::get('/blf/permissions', function () {
+    try {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('blf_permissions')) {
+            \Illuminate\Support\Facades\Schema::create('blf_permissions', function (\Illuminate\Database\Schema\Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id')->unique()->index();
+                $table->string('user_name')->nullable();
+                $table->string('department')->nullable();
+                $table->string('domain_id', 50)->nullable();
+                $table->string('domain_name')->nullable();
+                $table->boolean('can_view_blf')->default(false);
+                $table->boolean('can_view_all')->default(false);
+                $table->json('monitored_extensions')->nullable();
+                $table->string('role', 30)->default('staff');
+                $table->timestamps();
+            });
+        }
+
+        $records = DB::table('blf_permissions')->get();
+        $formatted = $records->map(function ($r) {
+            $exts = [];
+            if (!empty($r->monitored_extensions)) {
+                $decoded = is_string($r->monitored_extensions) ? json_decode($r->monitored_extensions, true) : $r->monitored_extensions;
+                if (is_array($decoded)) {
+                    $exts = array_values(array_map('strval', $decoded));
+                }
+            }
+
+            return [
+                'userId' => (int)$r->user_id,
+                'userName' => $r->user_name ?: 'کاربر سامانه',
+                'department' => $r->department ?: '',
+                'domainId' => $r->domain_id ?: '',
+                'domainName' => $r->domain_name ?: '',
+                'canViewBlf' => (bool)$r->can_view_blf,
+                'canViewAll' => (bool)$r->can_view_all,
+                'monitoredExtensions' => $exts,
+                'role' => $r->role ?: 'staff',
+            ];
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => $formatted
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+    }
+});
+
+Route::post('/blf/permissions', function (Request $request) {
+    try {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('blf_permissions')) {
+            \Illuminate\Support\Facades\Schema::create('blf_permissions', function (\Illuminate\Database\Schema\Blueprint $table) {
+                $table->id();
+                $table->unsignedBigInteger('user_id')->unique()->index();
+                $table->string('user_name')->nullable();
+                $table->string('department')->nullable();
+                $table->string('domain_id', 50)->nullable();
+                $table->string('domain_name')->nullable();
+                $table->boolean('can_view_blf')->default(false);
+                $table->boolean('can_view_all')->default(false);
+                $table->json('monitored_extensions')->nullable();
+                $table->string('role', 30)->default('staff');
+                $table->timestamps();
+            });
+        }
+
+        $permissions = $request->input('permissions', []);
+        if (!is_array($permissions)) {
+            return response()->json(['status' => 'error', 'message' => 'داده‌های ارسالی نامعتبر است.'], 422);
+        }
+
+        $receivedUserIds = [];
+
+        foreach ($permissions as $p) {
+            $userId = isset($p['userId']) ? (int)$p['userId'] : (isset($p['user_id']) ? (int)$p['user_id'] : 0);
+            if ($userId <= 0) continue;
+
+            $receivedUserIds[] = $userId;
+            $exts = isset($p['monitoredExtensions']) ? $p['monitoredExtensions'] : (isset($p['monitored_extensions']) ? $p['monitored_extensions'] : []);
+            if (!is_array($exts)) $exts = [];
+            $extsJson = json_encode(array_values(array_unique(array_map('strval', $exts))));
+
+            $canViewBlf = isset($p['canViewBlf']) ? (bool)$p['canViewBlf'] : (isset($p['can_view_blf']) ? (bool)$p['can_view_blf'] : false);
+            $canViewAll = isset($p['canViewAll']) ? (bool)$p['canViewAll'] : (isset($p['can_view_all']) ? (bool)$p['can_view_all'] : false);
+
+            $data = [
+                'user_name' => $p['userName'] ?? ($p['user_name'] ?? ''),
+                'department' => $p['department'] ?? '',
+                'domain_id' => $p['domainId'] ?? ($p['domain_id'] ?? ''),
+                'domain_name' => $p['domainName'] ?? ($p['domain_name'] ?? ''),
+                'can_view_blf' => $canViewBlf,
+                'can_view_all' => $canViewAll,
+                'monitored_extensions' => $extsJson,
+                'role' => $p['role'] ?? 'staff',
+                'updated_at' => now(),
+            ];
+
+            $exists = DB::table('blf_permissions')->where('user_id', $userId)->first();
+            if ($exists) {
+                DB::table('blf_permissions')->where('user_id', $userId)->update($data);
+            } else {
+                $data['user_id'] = $userId;
+                $data['created_at'] = now();
+                DB::table('blf_permissions')->insert($data);
+            }
+        }
+
+        // حذف کاربرانی که در لیست حذف شده‌اند (به جز کاربر ادمین)
+        if (!empty($receivedUserIds)) {
+            DB::table('blf_permissions')
+                ->where('role', '!=', 'admin')
+                ->whereNotIn('user_id', $receivedUserIds)
+                ->delete();
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'سطوح دسترسی BLF پرسنل با موفقیت در دیتابیس ذخیره شد.'
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json(['status' => 'error', 'message' => $e->getMessage()], 500);
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
 | ۵. تست ارتباط واقعی با سرور اکتیودایرکتوری (پورت و سوکت شبکه)
 |--------------------------------------------------------------------------
 */
