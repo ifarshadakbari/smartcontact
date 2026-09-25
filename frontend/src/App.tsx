@@ -60,6 +60,8 @@ import {
   getStoredBlfStates,
   subscribeToBlfUpdates,
   getMonitoredExtensionsData,
+  getAllAvailableInternalExtensions,
+  extractExtensionFromLandline,
 } from './services/blfService';
 import {
   subscribeToApiUsage,
@@ -334,54 +336,161 @@ export default function App() {
   // Determine if current user has BLF permission and what extensions to monitor
   const currentUserBlfPerm = useMemo(() => {
     if (!currentUser) return null;
-    const found = blfPermissions.find((p) => p.userId === currentUser.id);
-    if (found) {
-      // Ensure domainId is present
-      if (!found.domainId) {
-        const userDom = ldapDomains.find(
-          (d) => d.name === currentUser.domain || d.id === currentUser.domain
-        ) || ldapDomains[0];
-        return {
-          ...found,
-          domainId: userDom?.id || '',
-          domainName: userDom?.display_name || userDom?.name || currentUser.domain || 'دامین پیش‌فرض',
-        };
-      }
-      return found;
+
+    const currentUserIdStr = currentUser.id != null ? String(currentUser.id) : '';
+    const cleanUser = (currentUser.username || '').trim().toLowerCase();
+    const cleanEmail = (currentUser.email || '').trim().toLowerCase();
+    const cleanPersonnel = (currentUser.personnel_code || '').trim();
+    const cleanExt = (currentUser.extension || '').trim();
+    const cleanName = normalizeSearchText(currentUser.name || '');
+
+    // 1. Direct match on blfPermissions by userId or contactId
+    let found = blfPermissions.find((p) => {
+      if (currentUserIdStr && String(p.userId) === currentUserIdStr) return true;
+      if (p.contactId && String(p.contactId) === currentUserIdStr) return true;
+      return false;
+    });
+
+    // 2. Direct match on blfPermissions by username, email, personnel_code, extension
+    if (!found) {
+      found = blfPermissions.find((p) => {
+        if (cleanUser && p.userUsername && p.userUsername.trim().toLowerCase() === cleanUser) return true;
+        if (cleanEmail && p.userEmail && p.userEmail.trim().toLowerCase() === cleanEmail) return true;
+        if (cleanPersonnel && p.personnelCode && String(p.personnelCode).trim() === cleanPersonnel) return true;
+        if (cleanExt && p.userExtension && String(p.userExtension).trim() === cleanExt) return true;
+        return false;
+      });
     }
 
-    const userDomainObj = ldapDomains.find(
-      (d) => d.name === currentUser.domain || d.id === currentUser.domain
-    ) || ldapDomains[0];
+    // 3. Match via contact book: find the contact representing currentUser, then find their permission
+    if (!found && contacts.length > 0) {
+      const userMatchedContact = contacts.find((c) => {
+        if (currentUserIdStr && String(c.id) === currentUserIdStr) return true;
+        if (cleanUser && c.ldap_username && c.ldap_username.trim().toLowerCase() === cleanUser) return true;
+        if (cleanEmail && c.email && c.email.trim().toLowerCase() === cleanEmail) return true;
+        if (cleanPersonnel && c.personnel_code && String(c.personnel_code).trim() === cleanPersonnel) return true;
+        if (cleanExt && c.landlines?.some((l) => extractExtensionFromLandline(l) === cleanExt)) return true;
+        if (cleanName) {
+          const cName = normalizeSearchText(`${c.first_name || ''} ${c.last_name || ''}`);
+          if (cName && (cName === cleanName || cName.includes(cleanName) || cleanName.includes(cName))) {
+            return true;
+          }
+        }
+        return false;
+      });
 
-    if (currentUser.role === 'admin') {
+      if (userMatchedContact) {
+        const cIdStr = String(userMatchedContact.id);
+        const cLdapUser = (userMatchedContact.ldap_username || '').trim().toLowerCase();
+        const cEmail = (userMatchedContact.email || '').trim().toLowerCase();
+        const cPersonnel = (userMatchedContact.personnel_code || '').trim();
+        const cExt = userMatchedContact.landlines?.map(extractExtensionFromLandline).find(Boolean) || '';
+        const cFullName = normalizeSearchText(`${userMatchedContact.first_name || ''} ${userMatchedContact.last_name || ''}`);
+
+        found = blfPermissions.find((p) => {
+          if (String(p.userId) === cIdStr || (p.contactId && String(p.contactId) === cIdStr)) return true;
+          if (cLdapUser && p.userUsername && p.userUsername.trim().toLowerCase() === cLdapUser) return true;
+          if (cEmail && p.userEmail && p.userEmail.trim().toLowerCase() === cEmail) return true;
+          if (cPersonnel && p.personnelCode && String(p.personnelCode).trim() === cPersonnel) return true;
+          if (cExt && p.userExtension && String(p.userExtension).trim() === cExt) return true;
+          if (cFullName) {
+            const pNorm = normalizeSearchText(p.userName || '');
+            if (pNorm && (pNorm === cFullName || pNorm.includes(cFullName) || cFullName.includes(pNorm))) return true;
+          }
+          return false;
+        });
+      }
+    }
+
+    // 4. Match by normalized user name or username comparison directly
+    if (!found) {
+      found = blfPermissions.find((p) => {
+        const pNorm = normalizeSearchText(p.userName || '');
+        if (cleanName && pNorm && (pNorm === cleanName || pNorm.includes(cleanName) || cleanName.includes(pNorm))) {
+          return true;
+        }
+        if (cleanUser && pNorm && pNorm === cleanUser) {
+          return true;
+        }
+        return false;
+      });
+    }
+
+    // 5. Fallback for administrator
+    if (!found && currentUser.role === 'admin') {
+      const userDomainObj = ldapDomains.find(
+        (d) => String(d.id) === String(currentUser.domain) || d.name === currentUser.domain
+      ) || ldapDomains[0];
+
       return {
-        userId: currentUser.id,
+        userId: typeof currentUser.id === 'number' ? currentUser.id : 1,
         userName: currentUser.name,
         role: 'admin' as const,
         department: currentUser.department,
-        domainId: userDomainObj?.id || '',
+        domainId: userDomainObj?.id || '1',
         domainName: userDomainObj?.display_name || userDomainObj?.name || currentUser.domain || 'دامین پیش‌فرض',
         canViewBlf: true,
+        canViewAll: true,
         monitoredExtensions: [],
       };
     }
-    return null;
-  }, [currentUser, blfPermissions, ldapDomains]);
 
-  const canViewBlf = Boolean(currentUserBlfPerm?.canViewBlf);
+    if (found) {
+      const userDomainObj = ldapDomains.find(
+        (d) => String(d.id) === String(found?.domainId) || d.name === found?.domainName
+      ) || ldapDomains[0];
+
+      const hasExtensions = Array.isArray(found.monitoredExtensions) && found.monitoredExtensions.length > 0;
+      const canView = found.canViewBlf !== false && (Boolean(found.canViewBlf) || Boolean(found.canViewAll) || hasExtensions || currentUser.role === 'admin');
+
+      return {
+        ...found,
+        domainId: found.domainId || userDomainObj?.id || '1',
+        domainName: found.domainName || userDomainObj?.display_name || 'دامین پیش‌فرض',
+        canViewBlf: canView,
+      };
+    }
+
+    return null;
+  }, [currentUser, blfPermissions, ldapDomains, contacts]);
+
+  const canViewBlf = Boolean(
+    currentUserBlfPerm &&
+    (currentUserBlfPerm.canViewBlf ||
+     currentUserBlfPerm.canViewAll ||
+     (currentUserBlfPerm.monitoredExtensions && currentUserBlfPerm.monitoredExtensions.length > 0) ||
+     currentUser?.role === 'admin')
+  );
+
+  // Automatically open the BLF panel when user has BLF permission
+  const blfAutoOpenedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (canViewBlf && currentUser) {
+      const userKey = `${currentUser.id}_${currentUser.username || currentUser.name}`;
+      if (blfAutoOpenedRef.current !== userKey) {
+        blfAutoOpenedRef.current = userKey;
+        setIsBlfPanelOpen(true);
+      }
+    }
+  }, [canViewBlf, currentUser]);
 
   const monitoredExtensionsData: BlfExtensionInfo[] = useMemo(() => {
     if (!canViewBlf || !currentUserBlfPerm) return [];
-    
-    let extsToMonitor = currentUserBlfPerm.monitoredExtensions;
-    // اگر کاربر مدیر است و هیچ داخلی خاصی مشخص نکرده، تمام داخلی‌های دامین خود را مانیتور کند
-    if (currentUser?.role === 'admin' && (!extsToMonitor || extsToMonitor.length === 0)) {
-      const allDomExts = contacts
-        .filter((c) => c.contact_type === 'internal')
-        .flatMap((c) => (c.landlines || []).map((l) => (l.extension || '').trim()))
-        .filter(Boolean);
-      extsToMonitor = Array.from(new Set(allDomExts));
+
+    let extsToMonitor = currentUserBlfPerm.monitoredExtensions || [];
+
+    // اگر کاربر مدیر است، دسترسی مشاهده همه دارد، یا هیچ داخلی خاصی مشخص نشده، تمام داخلی‌های دامین مربوطه را نمایش دهد
+    if (
+      currentUser?.role === 'admin' ||
+      currentUserBlfPerm.canViewAll ||
+      extsToMonitor.length === 0
+    ) {
+      const allAvail = getAllAvailableInternalExtensions(contacts, currentUser, ldapDomains);
+      const curDomId = String(currentUserBlfPerm.domainId || '1');
+      const domainAvail = allAvail.filter((e) => !e.domainId || String(e.domainId) === curDomId);
+      if (extsToMonitor.length === 0) {
+        extsToMonitor = (domainAvail.length > 0 ? domainAvail : allAvail).map((e) => e.extension);
+      }
     }
 
     return getMonitoredExtensionsData(
@@ -390,7 +499,7 @@ export default function App() {
       blfStates,
       currentUserBlfPerm.domainId
     );
-  }, [canViewBlf, currentUserBlfPerm, contacts, blfStates, currentUser]);
+  }, [canViewBlf, currentUserBlfPerm, contacts, blfStates, currentUser, ldapDomains]);
 
   const handleSaveBlfPermissions = async (newPermissions: UserBlfPermission[]) => {
     setBlfPermissions(newPermissions);
@@ -460,6 +569,15 @@ export default function App() {
     if (userDomainId) {
       setSelectedCategory(userDomainId);
     }
+    // Refresh BLF permissions from server upon login so new permissions apply immediately
+    fetchBlfPermissionsFromApi(laravelConfig)
+      .then((apiPerms) => {
+        if (Array.isArray(apiPerms) && apiPerms.length > 0) {
+          setBlfPermissions(apiPerms);
+          saveStoredBlfPermissions(apiPerms);
+        }
+      })
+      .catch(() => {});
     showToast(`ورود موفقیت‌آمیز: ${user.name} (${user.role === 'admin' ? 'مدیر سیستم' : 'پرسنل سازمانی'})`);
   };
 
