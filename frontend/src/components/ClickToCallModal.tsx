@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { User, LdapDomain, Contact } from '../types';
 import { originateVoipCall, hangupVoipCall, checkVoipChannelStatus } from '../services/apiService';
+import { setExtensionBlfState } from '../services/blfService';
 
 interface ClickToCallModalProps {
   isOpen: boolean;
@@ -92,11 +93,17 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
             consecutiveInactiveCount++;
             if (consecutiveInactiveCount >= 2) {
               setStage('ended');
+              setExtensionBlfState(callerExtension.trim(), 'idle', 0);
+              const cleanTarget = targetNumber.trim();
+              if (cleanTarget.length <= 5 && !cleanTarget.startsWith('0')) {
+                setExtensionBlfState(cleanTarget, 'idle', 0);
+              }
             }
           } else {
             consecutiveInactiveCount = 0;
             if (typeof status.duration === 'number' && status.duration > 0) {
               setCallDuration(status.duration);
+              setExtensionBlfState(callerExtension.trim(), 'busy', status.duration, targetNumber);
             }
           }
         } catch {
@@ -108,7 +115,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     return () => {
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [stage, callerExtension, userDomain]);
+  }, [stage, callerExtension, userDomain, targetNumber]);
 
   if (!isOpen) return null;
 
@@ -147,6 +154,11 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
         // 3. User lifts handset after ~2 seconds -> call connects!
         setTimeout(() => {
           setStage('connected');
+          setExtensionBlfState(callerExtension.trim(), 'busy', 1, targetNumber);
+          const cleanTarget = targetNumber.trim();
+          if (cleanTarget.length <= 5 && !cleanTarget.startsWith('0')) {
+            setExtensionBlfState(cleanTarget, 'busy', 1, callerExtension.trim());
+          }
         }, 2500);
       } else {
         setStage('error');
@@ -160,6 +172,11 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
 
   const handleEndCall = async () => {
     setIsHangingUp(true);
+    setExtensionBlfState(callerExtension.trim(), 'idle', 0);
+    const cleanTarget = targetNumber.trim();
+    if (cleanTarget.length <= 5 && !cleanTarget.startsWith('0')) {
+      setExtensionBlfState(cleanTarget, 'idle', 0);
+    }
     try {
       if (userDomain?.voip_enabled) {
         await hangupVoipCall({
