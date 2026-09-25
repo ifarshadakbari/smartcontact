@@ -1,4 +1,4 @@
-import { Contact, LaravelConfig, User, LdapDomain, Department } from '../types';
+import { Contact, LaravelConfig, User, LdapDomain, Department, UserBlfPermission } from '../types';
 import { isAdminOnlyLandline } from '../utils/phoneUtils';
 
 const STORAGE_VERSION = 'v11';
@@ -429,6 +429,60 @@ export const checkVoipChannelStatus = async (params: {
     return { active: false };
   } catch {
     return { active: false };
+  }
+};
+
+// Fetch BLF permissions persisted in Laravel Database
+export const fetchBlfPermissionsFromApi = async (config?: LaravelConfig): Promise<UserBlfPermission[] | null> => {
+  const laravelCfg = config || getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/blf/permissions`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      headers: {
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+    });
+
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json.status === 'success' && Array.isArray(json.data)) {
+      return json.data as UserBlfPermission[];
+    }
+    return null;
+  } catch (e) {
+    console.warn('Could not fetch BLF permissions from Laravel DB, fallback to local storage:', e);
+    return null;
+  }
+};
+
+// Save BLF permissions to Laravel Database
+export const saveBlfPermissionsToApi = async (
+  permissions: UserBlfPermission[],
+  config?: LaravelConfig
+): Promise<{ success: boolean; message: string }> => {
+  const laravelCfg = config || getSavedLaravelConfig();
+  const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/blf/permissions`;
+
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(laravelCfg.token ? { Authorization: `Bearer ${laravelCfg.token}` } : {}),
+      },
+      body: JSON.stringify({ permissions }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json.status === 'success') {
+      return { success: true, message: json.message || 'سطوح دسترسی BLF با موفقیت ذخیره شد.' };
+    }
+    return { success: false, message: json.message || `خطا در ذخیره‌سازی در دیتابیس (${res.status})` };
+  } catch (e: any) {
+    return { success: false, message: `خطا در اتصال به سرور: ${e?.message || 'شبکه در دسترس نیست'}` };
   }
 };
 
