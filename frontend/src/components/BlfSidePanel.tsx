@@ -57,16 +57,49 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
     );
   }, [currentUser, ldapDomains]);
 
+  // State classification helpers
+  const isStateBusy = (s?: string) => {
+    const raw = String(s || '').toLowerCase().trim();
+    return (
+      raw === 'busy' ||
+      raw === 'inuse' ||
+      raw === 'ringing' ||
+      raw === 'hold' ||
+      raw === 'onhold' ||
+      raw === '1' ||
+      raw === '2' ||
+      raw === '9' ||
+      raw === '16'
+    );
+  };
+  const isStateOffline = (s?: string) => {
+    const raw = String(s || '').toLowerCase().trim();
+    return raw === 'offline' || raw === 'unavailable' || raw === '4' || raw === '-1';
+  };
+  const isStateIdle = (s?: string) => !isStateBusy(s) && !isStateOffline(s);
+
   // Counter metrics
   const canMakeCalls = Boolean(currentUser && currentUser.extension && currentUser.extension.trim() !== '');
-  const idleCount = useMemo(() => extensionsData.filter((e) => e.state === 'idle').length, [extensionsData]);
-  const busyCount = useMemo(() => extensionsData.filter((e) => e.state === 'busy').length, [extensionsData]);
-  const offlineCount = useMemo(() => extensionsData.filter((e) => e.state === 'offline').length, [extensionsData]);
+  const idleCount = useMemo(
+    () => extensionsData.filter((e) => isStateIdle(e.state)).length,
+    [extensionsData]
+  );
+  const busyCount = useMemo(
+    () => extensionsData.filter((e) => isStateBusy(e.state)).length,
+    [extensionsData]
+  );
+  const offlineCount = useMemo(
+    () => extensionsData.filter((e) => isStateOffline(e.state)).length,
+    [extensionsData]
+  );
 
   // Filtered list
   const filteredExtensions = useMemo(() => {
     return extensionsData.filter((item) => {
-      if (filterState !== 'all' && item.state !== filterState) return false;
+      if (filterState === 'idle' && !isStateIdle(item.state)) return false;
+      if (filterState === 'busy' && !isStateBusy(item.state)) return false;
+      if (filterState === 'offline' && !isStateOffline(item.state)) return false;
+
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         const matchesName = item.name.toLowerCase().includes(q);
@@ -299,9 +332,9 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
           </div>
         ) : (
           filteredExtensions.map((item) => {
-            const isIdle = item.state === 'idle';
-            const isBusy = item.state === 'busy';
-            const isOffline = item.state === 'offline';
+            const isBusy = isStateBusy(item.state);
+            const isOffline = isStateOffline(item.state);
+            const isIdle = !isBusy && !isOffline;
 
             return (
               <div
@@ -362,8 +395,13 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
                           </span>
                         )}
                         {isBusy && (
-                          <span className="text-rose-700 font-semibold flex items-center gap-1.5">
+                          <span className="text-rose-700 font-semibold flex items-center gap-1.5 flex-wrap">
                             <span>مشغول مکالمه</span>
+                            {item.callerNumber && (
+                              <span className="text-[9px] bg-rose-100/90 text-rose-800 px-1 rounded font-mono" dir="ltr">
+                                {item.callerNumber}
+                              </span>
+                            )}
                             <span className="inline-flex items-end gap-0.5 h-2.5 opacity-80" aria-hidden="true">
                               <span className="w-0.5 bg-rose-500 rounded-full h-2 soundwave-bar soundwave-bar-1"></span>
                               <span className="w-0.5 bg-rose-600 rounded-full h-2.5 soundwave-bar soundwave-bar-2"></span>
