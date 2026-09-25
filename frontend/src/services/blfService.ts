@@ -22,10 +22,16 @@ const STORAGE_KEY_BLF_STATES = 'enterprise_phonebook_blf_states';
 
 /**
  * Safely extracts internal extension number from a landline record,
- * handling schemas with .extension, .number, or short .phone
+ * handling schemas with .extension, .number, short .phone, or string/number
  */
 export function extractExtensionFromLandline(item: any): string {
-  if (!item || typeof item !== 'object') return '';
+  if (item === null || item === undefined) return '';
+  if (typeof item === 'string' || typeof item === 'number') {
+    const s = String(item).trim();
+    if (s.length <= 5 && !s.startsWith('0')) return s;
+    return s;
+  }
+  if (typeof item !== 'object') return '';
   if (item.extension && String(item.extension).trim() !== '') {
     return String(item.extension).trim();
   }
@@ -40,6 +46,7 @@ export function extractExtensionFromLandline(item: any): string {
     if (title.includes('داخلی') || title.toLowerCase().includes('ext')) {
       return num;
     }
+    return num;
   }
   if (item.phone && String(item.phone).trim() !== '') {
     const ph = String(item.phone).trim();
@@ -180,9 +187,14 @@ export function getMonitoredExtensionsData(
     );
 
     const stateInfo = blfStates[cleanExt] || { state: 'idle' };
-    const name = matchedContact
-      ? `${matchedContact.first_name} ${matchedContact.last_name}`.trim()
-      : `داخلی ${cleanExt}`;
+    let name = `داخلی ${cleanExt}`;
+    if (matchedContact) {
+      const lName =
+        matchedContact.prefix_title === 'location' && matchedContact.last_name === '-'
+          ? ''
+          : (matchedContact.last_name || '');
+      name = [matchedContact.first_name, lName].filter(Boolean).join(' ').trim() || matchedContact.company_name || `داخلی ${cleanExt}`;
+    }
 
     return {
       extension: cleanExt,
