@@ -4,8 +4,9 @@ import {
   UserBlfPermission,
   BlfExtensionInfo,
   BlfState,
+  LdapDomain,
 } from '../types';
-import { isAdminOnlyLandline } from '../utils/phoneUtils';
+import { isAdminOnlyLandline, matchContactToDomain } from '../utils/phoneUtils';
 
 export interface InternalExtensionMeta {
   extension: string;
@@ -19,9 +20,40 @@ export interface InternalExtensionMeta {
 const STORAGE_KEY_BLF_PERMISSIONS = 'enterprise_phonebook_blf_permissions';
 const STORAGE_KEY_BLF_STATES = 'enterprise_phonebook_blf_states';
 
+/**
+ * Safely extracts internal extension number from a landline record,
+ * handling schemas with .extension, .number, or short .phone
+ */
+export function extractExtensionFromLandline(item: any): string {
+  if (!item || typeof item !== 'object') return '';
+  if (item.extension && String(item.extension).trim() !== '') {
+    return String(item.extension).trim();
+  }
+  if (item.number && String(item.number).trim() !== '') {
+    const num = String(item.number).trim();
+    // Typical internal PBX extension: 2 to 5 digits, not starting with 0
+    if (num.length <= 5 && !num.startsWith('0')) {
+      return num;
+    }
+    // Also if title indicates internal extension
+    const title = String(item.title || '');
+    if (title.includes('داخلی') || title.toLowerCase().includes('ext')) {
+      return num;
+    }
+  }
+  if (item.phone && String(item.phone).trim() !== '') {
+    const ph = String(item.phone).trim();
+    if (ph.length <= 5 && !ph.startsWith('0')) {
+      return ph;
+    }
+  }
+  return '';
+}
+
 export function getAllAvailableInternalExtensions(
   allContacts: Contact[],
-  currentUser?: User | null
+  currentUser?: User | null,
+  ldapDomains?: LdapDomain[]
 ): InternalExtensionMeta[] {
   const result: InternalExtensionMeta[] = [];
   const seen = new Set<string>();
@@ -31,20 +63,32 @@ export function getAllAvailableInternalExtensions(
     if (c.contact_type !== 'internal') return;
     const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim() || 'بدون نام';
 
+    // Resolve domain info accurately
+    let resolvedDomainId = c.domain_id != null && c.domain_id !== '' ? String(c.domain_id) : '';
+    let resolvedDomainName = c.domain_name || c.domain || '';
+
+    if (ldapDomains && ldapDomains.length > 0) {
+      const matchedDom = ldapDomains.find((d) => matchContactToDomain(c, d));
+      if (matchedDom) {
+        resolvedDomainId = String(matchedDom.id);
+        resolvedDomainName = matchedDom.display_name || matchedDom.name;
+      }
+    }
+
     if (Array.isArray(c.landlines)) {
       c.landlines.forEach((l) => {
         if (!isAdmin && isAdminOnlyLandline(l)) {
           return;
         }
-        const ext = (l.extension || '').trim();
+        const ext = extractExtensionFromLandline(l);
         if (ext && !seen.has(ext)) {
           seen.add(ext);
           result.push({
             extension: ext,
             name: fullName,
             department: c.department || '',
-            domainId: c.domain_id ? String(c.domain_id) : c.domain ? String(c.domain) : '',
-            domainName: c.domain_name || c.domain || '',
+            domainId: resolvedDomainId,
+            domainName: resolvedDomainName,
             contactId: c.id,
           });
         }
@@ -60,7 +104,7 @@ export function getStoredBlfPermissions(): UserBlfPermission[] {
     const raw = localStorage.getItem(STORAGE_KEY_BLF_PERMISSIONS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch (e) {
     console.error('Failed to load BLF permissions', e);
@@ -72,9 +116,10 @@ export function getStoredBlfPermissions(): UserBlfPermission[] {
       userId: 1,
       userName: 'مدیر ارشد سامانه (Admin)',
       department: 'فناوری اطلاعات و زیرساخت',
-      domainId: 'dom-1',
+      domainId: '1',
       domainName: 'دامین مرکزی (پارس زرآسا)',
       monitoredExtensions: ['101', '102', '103', '104', '105', '201', '202'],
+      canViewBlf: true,
       canViewAll: true,
       role: 'admin',
     },
@@ -128,20 +173,23 @@ export function getMonitoredExtensionsData(
   if (!Array.isArray(monitoredExtensions)) return [];
 
   return monitoredExtensions.map((ext) => {
+    const cleanExt = String(ext).trim();
     const matchedContact = contacts.find((c) =>
-      c.landlines?.some((l) => (l.extension || '').trim() === ext.trim())
+      c.landlines?.some((l) => extractExtensionFromLandline(l) === cleanExt) ||
+      (c.personnel_code && String(c.personnel_code).trim() === cleanExt)
     );
 
-    const stateInfo = blfStates[ext] || { state: 'idle' };
+    const stateInfo = blfStates[cleanExt] || { state: 'idle' };
     const name = matchedContact
       ? `${matchedContact.first_name} ${matchedContact.last_name}`.trim()
-      : `داخلی ${ext}`;
+      : `داخلی ${cleanExt}`;
 
     return {
-      extension: ext,
+      extension: cleanExt,
       state: stateInfo.state || 'idle',
       name,
       department: matchedContact?.department || '',
+      jobTitle: matchedContact?.job_title || '',
       contactId: matchedContact?.id,
       domain_id: matchedContact?.domain_id || domainId,
       durationSec: stateInfo.durationSec || 0,
