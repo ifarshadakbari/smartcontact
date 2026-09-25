@@ -530,12 +530,22 @@ export default function App() {
             const next = { ...prev };
             Object.entries(liveStates).forEach(([ext, val]) => {
               const currentVal = next[ext];
-              if (!currentVal || currentVal.state !== val.state || currentVal.durationSec !== val.durationSec) {
+              const newState = val.state || 'idle';
+              const newDuration = newState === 'busy' ? (val.durationSec || 0) : 0;
+              const newCaller = newState === 'busy' ? val.callerNumber : undefined;
+
+              if (
+                !currentVal ||
+                currentVal.state !== newState ||
+                currentVal.durationSec !== newDuration ||
+                currentVal.callerNumber !== newCaller
+              ) {
                 hasChanged = true;
               }
               next[ext] = {
-                ...(next[ext] || {}),
-                ...val,
+                state: newState,
+                durationSec: newDuration,
+                callerNumber: newCaller,
               };
             });
             if (hasChanged) {
