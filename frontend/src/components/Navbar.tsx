@@ -127,16 +127,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* User Profile & Dropdown Menu */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Help & Tour Trigger Button (Always visible for all users) */}
+            {/* Help & Tour Trigger Button (Compact Icon Button) */}
             {onOpenHelpTour && (
               <button
                 type="button"
                 onClick={onOpenHelpTour}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-800 text-xs font-bold transition shadow-2xs cursor-pointer select-none"
-                title="راهنمای تعاملی، تور آموزشی، ویدئو معرفی و پاسخ به پرسش‌ها"
+                className="relative group p-2 rounded-xl border border-neutral-200/90 bg-white hover:bg-blue-50/80 hover:border-blue-300 text-neutral-600 hover:text-blue-700 transition shadow-2xs cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                title="راهنما و تور آموزشی (ویدئو، راهنمای گام‌به‌گام و پاسخ به پرسش‌ها)"
+                aria-label="راهنما و تور آموزشی"
               >
-                <HelpCircle className="w-4 h-4 text-blue-600" />
-                <span className="hidden sm:inline">راهنما و تور آموزشی</span>
+                <HelpCircle className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-transform" />
+                <span className="sr-only">راهنما و تور آموزشی</span>
               </button>
             )}
 
