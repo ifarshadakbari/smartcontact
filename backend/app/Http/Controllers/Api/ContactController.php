@@ -133,8 +133,10 @@ class ContactController extends Controller
     {
         $user = $this->resolveUser($request);
 
+        $isExternal = $request->input('contact_type') === 'external';
+
         $validated = $request->validate([
-            'first_name'          => 'required|string|max:100',
+            'first_name'          => $isExternal ? 'nullable|string|max:100' : 'required|string|max:100',
             'last_name'           => 'required|string|max:100',
             'prefix_title'        => 'nullable|string|max:50',
             'personnel_code'      => 'nullable|string|max:50',
@@ -157,6 +159,10 @@ class ContactController extends Controller
             'created_by_user_id'  => 'nullable|integer',
             'created_by_user_name'=> 'nullable|string|max:150',
         ]);
+
+        if ($isExternal && (!isset($validated['first_name']) || $validated['first_name'] === null)) {
+            $validated['first_name'] = '';
+        }
         $rawDomainId = $request->input('domain_id');
         $rawDomain = $request->input('domain') ?? $request->input('domain_name');
 
@@ -352,8 +358,10 @@ class ContactController extends Controller
             }
         }
 
+        $isExternal = $request->input('contact_type') === 'external' || ($contact->contact_type === 'external' && !$request->filled('contact_type'));
+
         $validated = $request->validate([
-            'first_name'          => 'sometimes|required|string|max:100',
+            'first_name'          => $isExternal ? 'nullable|string|max:100' : 'sometimes|required|string|max:100',
             'last_name'           => 'sometimes|required|string|max:100',
             'prefix_title'        => 'nullable|string|max:50',
             'personnel_code'      => 'nullable|string|max:50',

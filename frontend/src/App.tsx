@@ -84,6 +84,7 @@ import { PrintView } from './components/PrintView';
 import { BlfSidePanel } from './components/BlfSidePanel';
 import { BlfConfigModal } from './components/BlfConfigModal';
 import { DragOrderModal } from './components/DragOrderModal';
+import { HelpTourModal } from './components/HelpTourModal';
 
 export default function App() {
   // Authentication State
@@ -96,6 +97,9 @@ export default function App() {
     } catch (_) {}
     return null;
   });
+
+  // Interactive Help & Tour Modal State
+  const [isHelpTourOpen, setIsHelpTourOpen] = useState(false);
 
   // API Rate Limit & Quota Monitoring State
   const [apiUsageStatus, setApiUsageStatus] = useState<ApiUsageStatus>(() => calculateUsageStatus());
@@ -1291,6 +1295,7 @@ export default function App() {
         onToggleBlf={() => setIsBlfPanelOpen(!isBlfPanelOpen)}
         onOpenBlfConfig={() => setIsBlfConfigModalOpen(true)}
         onOpenDragOrderModal={currentUser?.role === 'admin' ? () => setIsDragOrderModalOpen(true) : undefined}
+        onOpenHelpTour={() => setIsHelpTourOpen(true)}
       />
 
       {/* Main Container */}
@@ -2121,6 +2126,14 @@ export default function App() {
             setIsLoginModalOpen(false);
             setIsLdapModalOpen(true);
           }}
+        />
+      )}
+
+      {/* Interactive Guide & Educational Tour Modal */}
+      {isHelpTourOpen && (
+        <HelpTourModal
+          isOpen={isHelpTourOpen}
+          onClose={() => setIsHelpTourOpen(false)}
         />
       )}
     </div>

@@ -93,6 +93,18 @@ Route::post('/domains/sync', function (Request $request) {
                 'updated_at'        => now(),
             ];
 
+            // پشتیبانی از پیش‌شماره خط شهری ترانک (voip_trunk_prefix)
+            if (\Illuminate\Support\Facades\Schema::hasColumn('ldap_domains', 'voip_trunk_prefix')) {
+                $data['voip_trunk_prefix'] = !empty($d['voip_trunk_prefix']) ? trim($d['voip_trunk_prefix']) : null;
+            } else {
+                try {
+                    \Illuminate\Support\Facades\Schema::table('ldap_domains', function (\Illuminate\Database\Schema\Blueprint $table) {
+                        $table->string('voip_trunk_prefix', 20)->nullable();
+                    });
+                    $data['voip_trunk_prefix'] = !empty($d['voip_trunk_prefix']) ? trim($d['voip_trunk_prefix']) : null;
+                } catch (\Throwable $e) {}
+            }
+
             if (!empty($d['bind_password'])) {
                 $data['bind_password'] = $d['bind_password'];
             }
@@ -832,6 +844,20 @@ Route::post('/voip/originate', function (Request $request) {
     // ۳. ارسال پکت Originate
     $channel = "{$channelTech}/{$callerExtension}";
     $cleanTarget = preg_replace('/[^0-9]/', '', $targetNumber);
+
+    // ۵- اعمال هوشمند پیش‌شماره خط شهری Trunk برای شماره‌های خارجی
+    $trunkPrefix = trim((string)$request->input('trunk_prefix', ''));
+    if (empty($trunkPrefix) && !empty($savedDomain) && isset($savedDomain->voip_trunk_prefix)) {
+        $trunkPrefix = trim((string)$savedDomain->voip_trunk_prefix);
+    }
+    if (!empty($trunkPrefix)) {
+        $cleanTrunk = preg_replace('/[^0-9]/', '', $trunkPrefix);
+        $isExternalCall = str_starts_with($cleanTarget, '0') || strlen($cleanTarget) > 5;
+        if ($isExternalCall && !empty($cleanTrunk) && !str_starts_with($cleanTarget, $cleanTrunk)) {
+            $cleanTarget = $cleanTrunk . $cleanTarget;
+        }
+    }
+
     $callId = 'originate_' . time() . '_' . mt_rand(1000, 9999);
 
     $originatePacket = "Action: Originate\r\n" .

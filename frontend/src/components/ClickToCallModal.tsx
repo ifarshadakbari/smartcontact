@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   PhoneCall,
   PhoneForwarded,
@@ -13,10 +13,16 @@ import {
   Check,
   RotateCcw,
   Sparkles,
+  Phone,
+  Clock,
+  Radio,
+  Volume2,
 } from 'lucide-react';
 import { User, LdapDomain, Contact } from '../types';
 import { originateVoipCall, hangupVoipCall, checkVoipChannelStatus } from '../services/apiService';
 import { setExtensionBlfState } from '../services/blfService';
+import { formatOutboundTrunkNumber, sanitizeDigitsOnly } from '../utils/phoneUtils';
+import { AnimatedAntennaIcon } from './AnimatedAntennaIcon';
 
 interface ClickToCallModalProps {
   isOpen: boolean;
@@ -51,6 +57,13 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isHangingUp, setIsHangingUp] = useState(false);
+  const [ringCountdown, setRingCountdown] = useState(30);
+
+  // ۵- محاسبه خودکار پیش‌شماره ترانک شهری (Trunk Prefix) برای تماس‌های خارجی
+  const rawTargetDigits = sanitizeDigitsOnly(targetNumber);
+  const trunkPrefix = userDomain?.voip_trunk_prefix;
+  const dialedNumber = formatOutboundTrunkNumber(targetNumber, trunkPrefix);
+  const isTrunkApplied = Boolean(trunkPrefix && dialedNumber !== rawTargetDigits);
 
   // Reset states when modal opens
   useEffect(() => {
@@ -61,10 +74,11 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
       setErrorMessage(null);
       setCallDuration(0);
       setIsHangingUp(false);
+      setRingCountdown(30);
     }
   }, [isOpen, targetNumber, currentUser]);
 
-  // Call timer when connected
+  // ۳- شمارش مدت تماس منحصراً زمانی آغاز می‌شود که تماس به وضعیت connected (برقراری مکالمه) رسیده باشد
   useEffect(() => {
     let timer: any = null;
     if (stage === 'connected') {
@@ -77,7 +91,54 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     };
   }, [stage]);
 
-  // Channel Polling: استعلام زنده وضعیت کانال از سرور VoIP تا در صورت قطع گوشی فیزیکی، تایمر و وضعیت متوقف شود
+  // ۳- مدیریت مرحله زنگ خوردن تلفن رومیزی (ringing_desk) و مهلت پاسخگویی ایزابل
+  useEffect(() => {
+    let countdownTimer: any = null;
+    let pollTimer: any = null;
+
+    if (stage === 'ringing_desk') {
+      setRingCountdown(30);
+
+      // الف) تایمر شمارش معکوس مهلت پاسخگویی (۳۰ ثانیه زمان استاندارد تایم‌اوت Originate در ایزابل)
+      countdownTimer = setInterval(() => {
+        setRingCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownTimer);
+            setStage('ended');
+            setErrorMessage('تماس به دلیل عدم برداشتن گوشی رومیزی توسط مرکز تلفن لغو گردید (پایان مهلت پاسخگویی).');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      // ب) استعلام بلادرنگ وضعیت کانال از مرکز تلفن تا به محض برداشتن گوشی تلفن، وارد مکالمه شود
+      if (userDomain?.voip_enabled) {
+        pollTimer = setInterval(async () => {
+          try {
+            const status = await checkVoipChannelStatus({
+              callerExtension: callerExtension.trim(),
+              domain: userDomain,
+            });
+
+            if (status.active) {
+              // کاربر گوشی فیزیکی را برداشته است! اتصال و آغاز شمارش مکالمه
+              handleHandsetPickedUp();
+            }
+          } catch {
+            // نادیده گرفتن خطاهای شبکه در استعلام اولیه
+          }
+        }, 1500);
+      }
+    }
+
+    return () => {
+      if (countdownTimer) clearInterval(countdownTimer);
+      if (pollTimer) clearInterval(pollTimer);
+    };
+  }, [stage, callerExtension, userDomain]);
+
+  // Channel Polling در حین مکالمه فعال (connected)
   useEffect(() => {
     let pollInterval: any = null;
     if (stage === 'connected' && userDomain?.voip_enabled) {
@@ -120,7 +181,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
   if (!isOpen) return null;
 
   const targetDisplayName = contact
-    ? `${contact.prefix_title === 'ms' ? 'خانم' : 'آقای'} ${contact.first_name} ${contact.last_name}`
+    ? `${contact.prefix_title === 'ms' ? 'خانم' : contact.prefix_title === 'location' ? '' : 'آقای'} ${[contact.first_name, contact.last_name].filter(Boolean).join(' ')}`
     : targetTitle || 'مخاطب';
 
   const formatTimer = (seconds: number) => {
@@ -141,25 +202,16 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     try {
       // 1. Send Originate command to Issabel
       const res = await originateVoipCall({
-        targetNumber,
+        targetNumber: dialedNumber,
         targetName: targetDisplayName,
         callerExtension: callerExtension.trim(),
         domain: userDomain,
       });
 
       if (res.success) {
-        // 2. Desk phone is ringing!
+        // ۲. تلفن رومیزی در حال زنگ خوردن است (هنوز مکالمه آغاز نشده است!)
         setStage('ringing_desk');
-
-        // 3. User lifts handset after ~2 seconds -> call connects!
-        setTimeout(() => {
-          setStage('connected');
-          setExtensionBlfState(callerExtension.trim(), 'busy', 1, targetNumber);
-          const cleanTarget = targetNumber.trim();
-          if (cleanTarget.length <= 5 && !cleanTarget.startsWith('0')) {
-            setExtensionBlfState(cleanTarget, 'busy', 1, callerExtension.trim());
-          }
-        }, 2500);
+        setRingCountdown(30);
       } else {
         setStage('error');
         setErrorMessage(res.message);
@@ -167,6 +219,17 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     } catch (err: any) {
       setStage('error');
       setErrorMessage(err.message || 'خطا در برقراری ارتباط با سرور VoIP');
+    }
+  };
+
+  // تأیید برداشتن گوشی فیزیکی رومیزی (Off-hook)
+  const handleHandsetPickedUp = () => {
+    setStage('connected');
+    setCallDuration(1);
+    setExtensionBlfState(callerExtension.trim(), 'busy', 1, targetNumber);
+    const cleanTarget = targetNumber.trim();
+    if (cleanTarget.length <= 5 && !cleanTarget.startsWith('0')) {
+      setExtensionBlfState(cleanTarget, 'busy', 1, callerExtension.trim());
     }
   };
 
@@ -213,7 +276,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                   تماس مستقیم از گوشی IP رومیزی
                 </h2>
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-semibold">
-                  VoIP
+                  VoIP / AMI
                 </span>
               </div>
               <p className="text-xs text-neutral-500">
@@ -238,44 +301,35 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
             <div className="space-y-0.5">
               <span className="text-[11px] text-neutral-500 block">مقصد تماس:</span>
               <div className="text-sm font-bold text-neutral-900">{targetDisplayName}</div>
-              {contact?.job_title && (
-                <div className="text-xs text-neutral-500">{contact.job_title} - {contact.department}</div>
+              {contact?.department && (
+                <div className="text-xs text-neutral-500">{contact.department}</div>
               )}
             </div>
-            <div className="text-left" dir="ltr">
-              <span className="text-[10px] text-neutral-400 block font-sans">Target Number</span>
-              <span className="text-lg font-mono font-black text-blue-600 tracking-wider">
+
+            <div className="text-left space-y-1">
+              <div className="text-xs font-mono font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-neutral-200 shadow-2xs inline-block" dir="ltr">
                 {targetNumber}
-              </span>
+              </div>
+              {/* نشان اعمال پیش‌شماره ترانک */}
+              {isTrunkApplied && (
+                <div className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono" dir="ltr" title="پیش‌شماره خط شهری ترانک در پس‌زمینه اضافه گردید">
+                  <span>Trunk [{trunkPrefix}]: {dialedNumber}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Caller Source Box (Active Directory IP Phone) */}
-          <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200 space-y-3">
+          {/* Caller Extension Info Box */}
+          <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2.5">
             <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-semibold text-neutral-800">
+                <UserIcon className="w-4 h-4 text-blue-600" />
+                <span>داخلی مبدأ (گوشی تلفن رومیزی شما):</span>
+              </div>
+
               <div className="flex items-center gap-2">
-                <UserIcon className="w-4 h-4 text-blue-700" />
-                <span className="text-xs font-bold text-blue-900">
-                  مبدا تماس: تلفن رومیزی شما
-                </span>
-              </div>
-              <span className="text-[11px] font-medium text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded">
-                دریافت‌شده از Active Directory
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <div>
-                <span className="text-[11px] text-neutral-500 block mb-0.5">کاربر جاری و دامین:</span>
-                <div className="text-xs font-semibold text-neutral-800">
-                  {currentUser.name} ({currentUser.domain || 'دامین پیش‌فرض'})
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[11px] font-medium text-neutral-600 block">شماره داخلی شما:</span>
-                  {!isEditingExt && isAdmin && (
+                <div className="flex items-center gap-1">
+                  {isAdmin && !isEditingExt && (
                     <button
                       type="button"
                       onClick={() => setIsEditingExt(true)}
@@ -293,7 +347,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                     <input
                       type="text"
                       value={callerExtension}
-                      onChange={(e) => setCallerExtension(e.target.value)}
+                      onChange={(e) => setCallerExtension(sanitizeDigitsOnly(e.target.value))}
                       placeholder="مثلاً 205"
                       className="w-28 px-3 py-1.5 text-sm font-bold text-center text-neutral-900 bg-white border border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 shadow-2xs"
                       dir="ltr"
@@ -339,6 +393,11 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                   سرور سیستم تلفن مبتنی بر IP: <strong className="font-semibold text-neutral-800">{userDomain.display_name || userDomain.domain_name || userDomain.name || 'ستاد مرکزی'}</strong>
                 </span>
               </span>
+              {trunkPrefix && (
+                <span className="text-[10px] text-neutral-500 font-mono">
+                  پیش‌شماره شهری: {trunkPrefix}
+                </span>
+              )}
             </div>
           </div>
 
@@ -349,44 +408,82 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                 <RotateCcw className="w-4 h-4" />
               </div>
               <div className="text-xs">
-                <div className="font-bold">در حال ارسال فرمان برقراری تماس به سرور VoIP...</div>
-                <div className="text-amber-700 mt-0.5">برقراری ارتباط با مرکز تلفن و فعال‌سازی چنل داخلی {callerExtension}</div>
+                <div className="font-bold">در حال ارسال فرمان برقراری تماس به سرور ایزابل...</div>
+                <div className="text-amber-700 mt-0.5">برقراری ارتباط با مرکز تلفن و به صدا درآوردن زنگ داخلی {callerExtension}</div>
               </div>
             </div>
           )}
 
+          {/* ۳- مرحله زنگ تلفن رومیزی: تا گوشی برداشته نشود به حالت مکالمه و تایمر نمی‌رود */}
           {stage === 'ringing_desk' && (
-            <div className="p-4 rounded-xl bg-blue-50 border-2 border-blue-400 text-blue-950 flex items-center gap-3.5 animate-pulse duration-700">
-              <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-md">
-                <PhoneForwarded className="w-5 h-5 animate-bounce" />
-              </div>
-              <div className="text-xs space-y-1">
-                <div className="font-extrabold text-sm text-blue-900">
-                  تلفن رومیزی شما (داخلی {callerExtension}) در حال زنگ خوردن است!
+            <div className="p-4 rounded-xl bg-sky-50 border-2 border-sky-400 text-sky-950 space-y-3 animate-in fade-in duration-200">
+              <div className="flex items-start gap-3.5">
+                <div className="w-11 h-11 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                  <PhoneForwarded className="w-6 h-6 animate-bounce" />
                 </div>
-                <div className="text-blue-700">
-                  لطفاً گوشی تلفن روی میز خود را بردارید؛ به محض برداشتن، سیستم تلفنی شماره {targetNumber} را شماره‌گیری خواهد کرد.
+                <div className="text-xs space-y-1 flex-1">
+                  <div className="font-black text-sm text-sky-950 flex items-center justify-between">
+                    <span>گوشی تلفن رومیزی شما در حال زنگ خوردن است...</span>
+                    <span className="text-[11px] font-mono bg-sky-200/80 text-sky-900 px-2 py-0.5 rounded font-bold">
+                      {ringCountdown} ثانیه
+                    </span>
+                  </div>
+                  <p className="text-sky-800 leading-relaxed">
+                    لطفاً گوشی تلفن روی میز خود را بردارید. به محض برداشتن گوشی، مرکز تلفن با مخاطب تماس برقرار کرده و تایمر مکالمه آغاز می‌شود.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action buttons inside ringing box */}
+              <div className="flex items-center justify-between pt-2 border-t border-sky-200 gap-2">
+                <div className="text-[11px] text-sky-700 flex items-center gap-1.5 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-sky-600 animate-ping"></span>
+                  <span>منتظر برداشتن گوشی فیزیکی تلفن (Off-hook)...</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleHandsetPickedUp}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                    title="تأیید برداشتن گوشی و آغاز مکالمه"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>گوشی را برداشتم (مکالمه آغاز شد)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleEndCall}
+                    className="px-2.5 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 rounded-lg text-xs font-medium transition cursor-pointer"
+                  >
+                    لغو
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
+          {/* مرحله مکالمه برقرار شده: تایمر اکنون در حال اجراست و آیکن آنتن فعال است */}
           {stage === 'connected' && (
             <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 flex items-center justify-between animate-in fade-in duration-200">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <PhoneCall className="w-4 h-4" />
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm relative">
+                  <PhoneCall className="w-5 h-5" />
+                  <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                  </span>
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-emerald-900">
-                    مکالمه برقرار شد (ارتباط روی خط داخلی {callerExtension})
+                  <div className="text-xs font-bold text-emerald-950 flex items-center gap-2">
+                    <span>مکالمه برقرار شد (ارتباط روی خط داخلی {callerExtension})</span>
+                    <AnimatedAntennaIcon size="sm" className="text-emerald-700" />
                   </div>
-                  <div className="text-[11px] text-emerald-700">
-                    صدای مخاطب روی گوشی تلفن رومیزی شما پخش می‌شود
+                  <div className="text-[11px] text-emerald-700 mt-0.5">
+                    صدای مخاطب روی گوشی تلفن رومیزی شما در حال پخش است
                   </div>
                 </div>
               </div>
-              <div className="font-mono text-base font-black text-emerald-800 bg-white px-3 py-1 rounded-lg border border-emerald-200" dir="ltr">
+              <div className="font-mono text-base font-black text-emerald-800 bg-white px-3 py-1.5 rounded-lg border border-emerald-200 shadow-2xs" dir="ltr">
                 {formatTimer(callDuration)}
               </div>
             </div>
@@ -396,7 +493,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
             <div className="p-4 bg-neutral-100 border border-neutral-300 text-neutral-800 rounded-xl text-xs flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span className="font-semibold">مکالمه با موفقیت به پایان رسید.</span>
+                <span className="font-semibold">مکالمه یا تلاش برای تماس به پایان رسید.</span>
               </div>
               {callDuration > 0 && (
                 <span className="text-[11px] text-neutral-500 font-mono">

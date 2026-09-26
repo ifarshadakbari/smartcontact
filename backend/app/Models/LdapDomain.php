@@ -30,6 +30,7 @@ class LdapDomain extends Model
         'voip_ami_secret',
         'voip_context',
         'voip_channel_tech',
+        'voip_trunk_prefix',
     ];
 
     protected $casts = [

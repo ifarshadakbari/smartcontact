@@ -102,6 +102,7 @@ import {
   isAdminOnlyLandline,
   deduplicateDepartments,
   isContactVoipCallable,
+  sanitizeDigitsOnly,
 } from '../utils/phoneUtils';
 
 interface ContactModalProps {
@@ -420,7 +421,8 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
   const handleUpdateMobile = (index: number, val: string) => {
     const updated = [...mobiles];
-    updated[index] = val;
+    // ۲- در کلیه شماره های تماس تلفن ثابت، داخلی و همراه فقط عدد وارد شود و حروف امکان ورود نداشته باشد
+    updated[index] = sanitizeDigitsOnly(val);
     setMobiles(updated);
   };
 
@@ -446,7 +448,12 @@ export const ContactModal: React.FC<ContactModalProps> = ({
     val: string | boolean | undefined
   ) => {
     const updated = [...landlines];
-    updated[index] = { ...updated[index], [field]: val };
+    let sanitizedVal = val;
+    // ۲- در تلفن ثابت و شماره داخلی فقط عدد وارد شود و حروف امکان ورود نداشته باشد
+    if (typeof val === 'string' && (field === 'phone' || field === 'extension')) {
+      sanitizedVal = sanitizeDigitsOnly(val);
+    }
+    updated[index] = { ...updated[index], [field]: sanitizedVal };
     setLandlines(updated);
   };
 
@@ -575,7 +582,14 @@ export const ContactModal: React.FC<ContactModalProps> = ({
 
       // * Check Required Fields
       const isLocationContact = prefixTitle === 'location';
-      if (isLocationContact) {
+      if (contactType === 'external') {
+        // ۱- در افراد برون سازمانی، نام اجباری نباشد و فقط نام خانوادگی اجباری باشد
+        if (!rawLastName) {
+          setValidationError('در افراد برون‌سازمانی، ثبت «نام خانوادگی» (یا عنوان شرکت / شخص) الزامی می‌باشد.');
+          modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+      } else if (isLocationContact) {
         if (!rawFirstName) {
           setValidationError('لطفاً عنوان یا نام مکان را وارد نمایید.');
           modalBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1153,21 +1167,42 @@ export const ContactModal: React.FC<ContactModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-neutral-900 mb-1">
-                    {prefixTitle === 'location' ? 'نام یا عنوان مکان' : 'نام'} <span className="text-red-500">*</span>
+                    {prefixTitle === 'location'
+                      ? 'نام یا عنوان مکان'
+                      : contactType === 'external'
+                      ? 'نام (اختیاری)'
+                      : 'نام'}{' '}
+                    {contactType !== 'external' && <span className="text-red-500">*</span>}
                   </label>
                   <input
                     type="text"
-                    required
+                    required={contactType !== 'external'}
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-neutral-300 rounded-lg text-neutral-900 text-xs focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                    placeholder={prefixTitle === 'location' ? 'اتاق سرور، سالن جلسات، ...' : 'نام'}
+                    placeholder={
+                      prefixTitle === 'location'
+                        ? 'اتاق سرور، سالن جلسات، ...'
+                        : contactType === 'external'
+                        ? 'نام شخص رابط (اختیاری)'
+                        : 'نام'
+                    }
                   />
+                  {contactType === 'external' && (
+                    <span className="text-[10px] text-neutral-400 mt-0.5 block">
+                      برای شرکت‌ها یا اشخاص برون‌سازمانی، ثبت نام اختیاری است.
+                    </span>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-neutral-900 mb-1">
-                    {prefixTitle === 'location' ? 'توضیح تکمیلی عنوان (اختیاری)' : 'نام خانوادگی'} {prefixTitle !== 'location' && <span className="text-red-500">*</span>}
+                    {prefixTitle === 'location'
+                      ? 'توضیح تکمیلی عنوان (اختیاری)'
+                      : contactType === 'external'
+                      ? 'نام خانوادگی یا عنوان شرکت / شخص'
+                      : 'نام خانوادگی'}{' '}
+                    {prefixTitle !== 'location' && <span className="text-red-500">*</span>}
                   </label>
                   <input
                     type="text"
@@ -1175,8 +1210,19 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
                     className="w-full px-3 py-2 bg-white border border-neutral-300 rounded-lg text-neutral-900 text-xs focus:ring-2 focus:ring-blue-600 focus:outline-none"
-                    placeholder={prefixTitle === 'location' ? 'طبقه، واحد یا موقعیت (اختیاری)' : 'نام خانوادگی'}
+                    placeholder={
+                      prefixTitle === 'location'
+                        ? 'طبقه، واحد یا موقعیت (اختیاری)'
+                        : contactType === 'external'
+                        ? 'نام خانوادگی شخص، شرکت یا پیمانکار'
+                        : 'نام خانوادگی'
+                    }
                   />
+                  {contactType === 'external' && (
+                    <span className="text-[10px] text-amber-700 mt-0.5 block">
+                      ثبت نام خانوادگی، نام شرکت یا عنوان مرجع برون‌سازمانی الزامی است.
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -2058,7 +2104,7 @@ export const ContactModal: React.FC<ContactModalProps> = ({
                       <input
                         type="text"
                         value={newPersonalMobile}
-                        onChange={(e) => setNewPersonalMobile(e.target.value)}
+                        onChange={(e) => setNewPersonalMobile(sanitizeDigitsOnly(e.target.value))}
                         placeholder="09xxxxxxxxx"
                         className="flex-1 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-mono text-neutral-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
                         dir="ltr"

@@ -319,6 +319,7 @@ export const originateVoipCall = async (params: {
         secret: params.domain.voip_ami_secret,
         context: params.domain.voip_context || 'from-internal',
         channel_tech: params.domain.voip_channel_tech || 'SIP',
+        trunk_prefix: params.domain.voip_trunk_prefix,
         auto_answer: params.domain.voip_auto_answer ?? true,
       }),
     });

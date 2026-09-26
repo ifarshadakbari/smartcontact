@@ -667,3 +667,35 @@ export function getVisibleMobiles(
 
   return list;
 }
+
+/**
+ * Sanitizes input string to digits only (0-9).
+ * Converts Persian and Arabic digits to English digits and removes all non-numeric characters.
+ */
+export function sanitizeDigitsOnly(input: string): string {
+  if (!input) return '';
+  return String(input)
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[^\d]/g, '');
+}
+
+/**
+ * Formats a target dial number with domain trunk prefix if it's an outbound/external call.
+ * Outbound calls are:
+ * - Numbers starting with '0' (city line or mobile)
+ * - Numbers longer than 5 digits (external PSTN lines)
+ * If trunk_prefix exists (e.g. '9'), and number doesn't already start with it, prepends trunk prefix.
+ */
+export function formatOutboundTrunkNumber(targetNumber: string, trunkPrefix?: string): string {
+  const digits = sanitizeDigitsOnly(targetNumber);
+  if (!digits) return targetNumber;
+  const cleanPrefix = trunkPrefix ? sanitizeDigitsOnly(trunkPrefix) : '';
+  if (!cleanPrefix) return digits;
+
+  const isExternal = digits.startsWith('0') || digits.length > 5;
+  if (isExternal && !digits.startsWith(cleanPrefix)) {
+    return cleanPrefix + digits;
+  }
+  return digits;
+}

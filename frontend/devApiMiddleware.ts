@@ -709,9 +709,20 @@ export function createApiMiddleware() {
 
   // VoIP
   router.post('/voip/originate', (req, res) => {
-    const { target_number, caller_extension } = req.body;
+    const { target_number, caller_extension, trunk_prefix, domain_id } = req.body;
     const cleanCaller = String(caller_extension || '').trim();
-    const cleanTarget = String(target_number || '').trim();
+    let cleanTarget = String(target_number || '').trim();
+
+    // ۵- در صورت وجود پیش‌شماره خط شهری Trunk، برای شماره‌های برون‌شهری به صورت هوشمند اعمال شود
+    const targetDomain = ldapDomains.find((d) => String(d.id) === String(domain_id)) as any;
+    const activeTrunk = trunk_prefix || targetDomain?.voip_trunk_prefix || targetDomain?.default_voip_prefix;
+    if (activeTrunk) {
+      const cleanTrunk = String(activeTrunk).replace(/[^\d]/g, '');
+      const isExternal = cleanTarget.startsWith('0') || cleanTarget.length > 5;
+      if (isExternal && cleanTrunk && !cleanTarget.startsWith(cleanTrunk)) {
+        cleanTarget = cleanTrunk + cleanTarget;
+      }
+    }
 
     if (cleanCaller) {
       blfStatesMap[cleanCaller] = {
@@ -730,6 +741,7 @@ export function createApiMiddleware() {
 
     res.json({
       success: true,
+      dialed_number: cleanTarget,
       message: `دستور تماس به سرور ایزابل ارسال شد. تلفن رومیزی در حال زنگ خوردن است. به محض پاسخ، تماس با شماره ${cleanTarget} برقرار خواهد شد.`,
       callId: `call-${Date.now()}`,
     });

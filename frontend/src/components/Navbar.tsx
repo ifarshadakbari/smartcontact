@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   Settings,
   ArrowUpDown,
+  HelpCircle,
+  Sparkles,
 } from 'lucide-react';
 import { User, LaravelConfig, LdapDomain } from '../types';
 import { PorsaLinkLogo } from './PorsaLinkLogo';
@@ -36,6 +38,7 @@ interface NavbarProps {
   onToggleBlf?: () => void;
   onOpenBlfConfig?: () => void;
   onOpenDragOrderModal?: () => void;
+  onOpenHelpTour?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -56,6 +59,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleBlf,
   onOpenBlfConfig,
   onOpenDragOrderModal,
+  onOpenHelpTour,
 }) => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -123,6 +127,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* User Profile & Dropdown Menu */}
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Help & Tour Trigger Button (Always visible for all users) */}
+            {onOpenHelpTour && (
+              <button
+                type="button"
+                onClick={onOpenHelpTour}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-800 text-xs font-bold transition shadow-2xs cursor-pointer select-none"
+                title="راهنمای تعاملی، تور آموزشی، ویدئو معرفی و پاسخ به پرسش‌ها"
+              >
+                <HelpCircle className="w-4 h-4 text-blue-600" />
+                <span className="hidden sm:inline">راهنما و تور آموزشی</span>
+              </button>
+            )}
+
             {/* Authenticated User */}
             {user ? (
               <div className="relative" ref={dropdownRef}>
@@ -389,6 +406,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                               laravelConfig.status === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'
                             }`}
                           />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Interactive Help & Tour Modal */}
+                    {onOpenHelpTour && (
+                      <div className="py-1 border-t border-neutral-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onOpenHelpTour();
+                            setIsDropdownOpen(false);
+                          }}
+                          className="w-full px-4 py-2 text-right flex items-center justify-between hover:bg-neutral-100 transition cursor-pointer text-xs group"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center shrink-0 border border-blue-200 group-hover:bg-blue-100">
+                              <HelpCircle className="w-4 h-4 text-blue-600" />
+                            </div>
+                            <div>
+                              <div className="font-semibold text-neutral-900">راهنمای تعاملی و تور آموزشی</div>
+                              <div className="text-[10px] text-neutral-500">ویدئو، بارکد موبایل و تور گام‌به‌گام</div>
+                            </div>
+                          </div>
+                          <span className="bg-blue-50 text-blue-700 border border-blue-200 text-[10px] px-2 py-0.5 rounded-full font-bold">
+                            ۴ بخش
+                          </span>
                         </button>
                       </div>
                     )}
