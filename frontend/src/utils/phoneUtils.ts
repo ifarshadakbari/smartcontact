@@ -681,21 +681,88 @@ export function sanitizeDigitsOnly(input: string): string {
 }
 
 /**
- * Formats a target dial number with domain trunk prefix if it's an outbound/external call.
- * Outbound calls are:
- * - Numbers starting with '0' (city line or mobile)
- * - Numbers longer than 5 digits (external PSTN lines)
- * If trunk_prefix exists (e.g. '9'), and number doesn't already start with it, prepends trunk prefix.
+ * Detects if a dialed target is an internal organizational extension:
+ * - 2 to 5 digits, not starting with 0
+ * - Or explicitly an extension on an internal organizational contact
+ * - Organizational extensions should NEVER have a trunk prefix applied!
  */
-export function formatOutboundTrunkNumber(targetNumber: string, trunkPrefix?: string): string {
+export function isInternalExtension(targetNumber: string, contact?: Contact | null): boolean {
+  const digits = sanitizeDigitsOnly(targetNumber);
+  if (!digits) return false;
+
+  // Numbers starting with 0 are city/mobile external numbers
+  if (digits.startsWith('0')) return false;
+
+  // External PSTN landline numbers (e.g. 8 digits like 33824455 or province codes)
+  if (digits.length > 5) return false;
+
+  // If the contact is explicitly an external company, it is not our internal PBX extension
+  if (contact && contact.contact_type === 'external') {
+    return false;
+  }
+
+  // Extensions in VoIP / PBX are 2 to 5 digits (e.g. 100, 204, 1024, 2050)
+  return digits.length >= 2 && digits.length <= 5;
+}
+
+/**
+ * Formats a target dial number with domain trunk prefix if it's an outbound/external call.
+ * CRITICAL RULES:
+ * 1. Internal organizational extensions (2-5 digits not starting with 0) MUST NEVER have trunk prefix added.
+ * 2. External calls:
+ *    - Iranian mobile numbers (09..., 9..., +989...)
+ *    - City lines with province code (013..., 021...)
+ *    - Local city lines (6-8 digits)
+ *    - External company contacts
+ *    Prepend trunk prefix (e.g. '9') and ensure correct outbound dialing format (e.g. 909123456789).
+ */
+export function formatOutboundTrunkNumber(
+  targetNumber: string,
+  trunkPrefix?: string,
+  contact?: Contact | null
+): string {
   const digits = sanitizeDigitsOnly(targetNumber);
   if (!digits) return targetNumber;
+
+  // 1. Strict check: Never add trunk prefix to internal organizational extensions
+  if (isInternalExtension(targetNumber, contact)) {
+    return digits;
+  }
+
   const cleanPrefix = trunkPrefix ? sanitizeDigitsOnly(trunkPrefix) : '';
   if (!cleanPrefix) return digits;
 
-  const isExternal = digits.startsWith('0') || digits.length > 5;
-  if (isExternal && !digits.startsWith(cleanPrefix)) {
+  // If already prefixed with trunkPrefix + '0' (e.g. 90912... or 9013...)
+  if (digits.startsWith(cleanPrefix + '0')) {
+    return digits;
+  }
+
+  // Case A: Iranian mobile without zero (10 digits starting with 9, e.g. 9123456789)
+  if (digits.length === 10 && digits.startsWith('9')) {
+    return cleanPrefix + '0' + digits;
+  }
+
+  // Case B: Iranian mobile with international prefix +98 or 0098
+  if (digits.startsWith('0098')) {
+    return cleanPrefix + '0' + digits.slice(4);
+  }
+  if (digits.startsWith('98') && digits.length >= 12) {
+    return cleanPrefix + '0' + digits.slice(2);
+  }
+
+  // Case C: Standard mobile or city landline starting with 0 (e.g. 09113334455, 01333824455)
+  if (digits.startsWith('0')) {
     return cleanPrefix + digits;
   }
+
+  // Case D: Local city landlines (6-8 digits, e.g. 33824455) or external company contact
+  if (digits.length > 5 || (contact && contact.contact_type === 'external')) {
+    // Check if already prefixed
+    if (digits.startsWith(cleanPrefix) && digits.length === 9) {
+      return digits;
+    }
+    return cleanPrefix + digits;
+  }
+
   return digits;
 }

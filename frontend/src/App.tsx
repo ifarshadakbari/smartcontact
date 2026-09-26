@@ -2028,7 +2028,7 @@ export default function App() {
         />
       )}
 
-      {/* VoIP Click-to-Call Modal (Issabel / Asterisk AMI) */}
+      {/* VoIP Click-to-Call Modal (Asterisk AMI) */}
       {callTarget && currentUser && (
         <ClickToCallModal
           isOpen={Boolean(callTarget)}

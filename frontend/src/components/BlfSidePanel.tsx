@@ -433,7 +433,7 @@ export const BlfSidePanel: React.FC<BlfSidePanelProps> = ({
                         className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-rose-100 text-rose-700 border border-rose-200/90 shadow-2xs select-none"
                         title="خط در حال مکالمه است"
                       >
-                        {/* آیکن آنتن سه خطی متحرک ایزابل */}
+                        {/* آیکن آنتن سه خطی متحرک سرور VoIP */}
                         <AnimatedAntennaIcon size="sm" className="text-rose-600" />
                         {/* 3 Animated Sound Wave Bars */}
                         <div className="flex items-end gap-0.5 h-3 px-0.5" aria-hidden="true">

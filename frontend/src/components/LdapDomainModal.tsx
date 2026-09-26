@@ -380,12 +380,12 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                               </span>
                             </div>
 
-                            {/* VoIP Issabel info badge */}
+                            {/* VoIP Server info badge */}
                             {dom.voip_enabled ? (
                               <div className="flex flex-wrap items-center gap-2 mt-2 text-[11px] text-emerald-800 bg-emerald-50/80 px-2.5 py-1 rounded-lg border border-emerald-200">
                                 <span className="flex items-center gap-1 font-semibold">
                                   <PhoneCall className="w-3 h-3 text-emerald-600" />
-                                  <span>سرور ایزابل (VoIP):</span>
+                                  <span>سرور VoIP:</span>
                                 </span>
                                 <span className="font-mono font-bold" dir="ltr">{dom.voip_server_host}:{dom.voip_ami_port || 5038}</span>
                                 <span className="text-[10px] text-emerald-600 bg-emerald-100/60 px-1.5 py-0.5 rounded font-mono">
@@ -395,7 +395,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                             ) : (
                               <div className="text-[10px] text-neutral-400 mt-1.5 flex items-center gap-1">
                                 <Radio className="w-3 h-3 text-neutral-300" />
-                                <span>سرویس تماس ایزابل (VoIP) غیرفعال است</span>
+                                <span>سرویس تماس VoIP غیرفعال است</span>
                               </div>
                             )}
                           </div>
@@ -425,7 +425,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                                 onClick={() => handleTestVoipConnection(dom)}
                                 disabled={isTestingVoipId === dom.id}
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-xs text-emerald-800 font-medium transition cursor-pointer disabled:opacity-50 shadow-2xs"
-                                title="تست ارتباط سوکت AMI با سرور ایزابل پورت ۵۰۳۸"
+                                title="تست ارتباط سوکت AMI با سرور VoIP پورت ۵۰۳۸"
                               >
                                 <PhoneForwarded
                                   className={`w-3 h-3 text-emerald-600 ${
@@ -525,7 +525,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                               ) : (
                                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
                               )}
-                              <span>[ایزابل VoIP] {voipTestResults[dom.id].message}</span>
+                              <span>[سرور VoIP] {voipTestResults[dom.id].message}</span>
                             </div>
                             <span className="font-mono text-[11px] text-neutral-500" dir="ltr">
                               {voipTestResults[dom.id].latencyMs} ms
@@ -707,7 +707,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-emerald-950">
-                        تنظیمات سرور ایزابل (VoIP / Asterisk AMI) - تماس با یک کلیک (Click to Call)
+                        تنظیمات سرور VoIP (Asterisk AMI) - تماس با یک کلیک (Click to Call)
                       </h4>
                       <p className="text-[11px] text-emerald-700">
                         ارسال فرمان Originate به استریسک تا تلفن رومیزی IP Phone کاربر شماره مقصد را شماره‌گیری کند
@@ -730,7 +730,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
                     <div>
                       <label className="block text-[11px] font-bold text-neutral-700 mb-1">
-                        آدرس IP / هاست سرور ایزابل (Issabel PBX Host)
+                        آدرس IP / هاست سرور VoIP (PBX Host)
                       </label>
                       <input
                         type="text"
@@ -917,7 +917,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                     }}
                     disabled={isTestingVoipId === 'edit-form' || !voipServerHost.trim()}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 rounded-lg text-xs font-semibold transition cursor-pointer disabled:opacity-50 shadow-2xs"
-                    title="تست اتصال زنده به سرویس AMI ایزابل"
+                    title="تست اتصال زنده به سرویس AMI سرور VoIP"
                   >
                     <PhoneForwarded
                       className={`w-3.5 h-3.5 text-emerald-600 ${
@@ -981,7 +981,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                     <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                   )}
                   <div>
-                    <span className="font-bold">[ایزابل VoIP] {voipTestResults['edit-form'].message}</span>
+                    <span className="font-bold">[سرور VoIP] {voipTestResults['edit-form'].message}</span>
                     <span className="text-[10px] text-neutral-500 block mt-0.5 font-mono" dir="ltr">
                       تاخیر زمانی: {voipTestResults['edit-form'].latencyMs} میلی‌ثانیه {voipTestResults['edit-form'].version ? `| نسخه: ${voipTestResults['edit-form'].version}` : ''}
                     </span>
@@ -1018,7 +1018,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                   }`}
                 >
                   <PhoneCall className="w-3.5 h-3.5" />
-                  <span>۲. کنترلر تماس ایزابل (VoipController)</span>
+                  <span>۲. کنترلر تماس سرور VoIP (VoipController)</span>
                 </button>
 
                 <button
@@ -1031,7 +1031,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                   }`}
                 >
                   <Server className="w-3.5 h-3.5" />
-                  <span>۳. کانفیگ manager.conf سرور ایزابل</span>
+                  <span>۳. کانفیگ manager.conf سرور VoIP</span>
                 </button>
 
                 <button
@@ -1068,7 +1068,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                   <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-3 rounded-xl text-xs flex items-start gap-2">
                     <PhoneCall className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <p>
-                      کد آماده کنترلر وب‌سرویس برای پروتکل AMI استریسک سرور ایزابل. این کنترلر دستور <code className="mx-1 font-mono font-bold bg-white px-1 py-0.5 rounded text-emerald-700" dir="ltr">Action: Originate</code> را ارسال می‌کند تا ابتدا گوشی رومیزی کاربر زنگ بخورد و پس از برداشتن، شماره مقصد شماره‌گیری شود:
+                      کد آماده کنترلر وب‌سرویس برای پروتکل AMI استریسک سرور VoIP. این کنترلر دستور <code className="mx-1 font-mono font-bold bg-white px-1 py-0.5 rounded text-emerald-700" dir="ltr">Action: Originate</code> را ارسال می‌کند تا ابتدا گوشی رومیزی کاربر زنگ بخورد و پس از برداشتن، شماره مقصد شماره‌گیری شود:
                     </p>
                   </div>
                   <pre className="p-4 bg-neutral-900 text-neutral-100 rounded-xl text-xs font-mono overflow-x-auto leading-relaxed max-h-[380px]" dir="ltr">
@@ -1082,7 +1082,7 @@ export const LdapDomainModal: React.FC<LdapDomainModalProps> = ({
                   <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-start gap-2">
                     <Server className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                     <p>
-                      تنظیمات فایل <code className="mx-1 font-mono font-bold bg-white px-1 py-0.5 rounded text-amber-800" dir="ltr">/etc/asterisk/manager.conf</code> در سرور ایزابل برای اعطای مجوز AMI به وب‌سرور:
+                      تنظیمات فایل <code className="mx-1 font-mono font-bold bg-white px-1 py-0.5 rounded text-amber-800" dir="ltr">/etc/asterisk/manager.conf</code> در سرور VoIP برای اعطای مجوز AMI به وب‌سرور:
                     </p>
                   </div>
                   <pre className="p-4 bg-neutral-900 text-neutral-100 rounded-xl text-xs font-mono overflow-x-auto leading-relaxed max-h-[380px]" dir="ltr">

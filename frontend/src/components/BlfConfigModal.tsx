@@ -438,7 +438,7 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
                   پیکربندی و تخصیص مانیتورینگ BLF به پرسنل
                 </h2>
                 <span className="text-[10px] bg-blue-500/30 text-blue-200 border border-blue-400/40 px-2 py-0.5 rounded-full font-semibold">
-                  تفکیک چنددامینی ایزابل
+                  تفکیک چنددامینی سرورهای VoIP
                 </span>
               </div>
               <p className="text-xs text-neutral-300">
@@ -802,7 +802,7 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
                     </div>
                     {activeExtensionDomain && (
                       <p className="text-[11px] text-blue-800 leading-relaxed">
-                        هاست ایزابل این دامین: <strong className="font-mono text-neutral-900" dir="ltr">{activeExtensionDomain.voip_server_host || '127.0.0.1'}</strong> (کانتکست: {activeExtensionDomain.voip_context || 'from-internal'})
+                        هاست VoIP این دامین: <strong className="font-mono text-neutral-900" dir="ltr">{activeExtensionDomain.voip_server_host || '127.0.0.1'}</strong> (کانتکست: {activeExtensionDomain.voip_context || 'from-internal'})
                       </p>
                     )}
                   </div>
@@ -904,7 +904,7 @@ export const BlfConfigModal: React.FC<BlfConfigModalProps> = ({
         {/* Footer */}
         <div className="bg-neutral-50 border-t border-neutral-200 p-4 flex items-center justify-between">
           <div className="text-xs text-neutral-500">
-            تخصیص‌ها با تفکیک سرورهای ایزابل هر دامین ذخیره و بلادرنگ اعمال خواهند شد.
+            تخصیص‌ها با تفکیک سرورهای VoIP هر دامین ذخیره و بلادرنگ اعمال خواهند شد.
           </div>
           <div className="flex items-center gap-2">
             <button

@@ -231,14 +231,14 @@ export const testLdapConnection = async (domain: LdapDomain, config?: LaravelCon
   }
 };
 
-// Real testing of Issabel / Asterisk AMI connectivity via Backend Proxy
+// Real testing of VoIP / Asterisk AMI connectivity via Backend Proxy
 export const testVoipAmiConnection = async (domain: LdapDomain): Promise<{ success: boolean; message: string; latencyMs: number; version?: string }> => {
   const start = Date.now();
 
   if (!domain.voip_server_host || !domain.voip_server_host.trim()) {
     return {
       success: false,
-      message: 'آدرس سرور ایزابل (IP یا Hostname) تعیین نشده است.',
+      message: 'آدرس سرور VoIP (IP یا Hostname) تعیین نشده است.',
       latencyMs: 0,
     };
   }
@@ -269,14 +269,14 @@ export const testVoipAmiConnection = async (domain: LdapDomain): Promise<{ succe
     if (res.ok && json.status === 'success') {
       return {
         success: true,
-        message: json.message || `اتصال موفق به سرویس AMI ایزابل با کاربر ${domain.voip_ami_username} تایید شد.`,
+        message: json.message || `اتصال موفق به سرویس AMI سرور VoIP با کاربر ${domain.voip_ami_username} تایید شد.`,
         latencyMs: json.latencyMs || latency,
         version: json.version,
       };
     } else {
       return {
         success: false,
-        message: json.message || `خطا در برقراری ارتباط با سرور ایزابل (کد وضعیت: ${res.status})`,
+        message: json.message || `خطا در برقراری ارتباط با سرور VoIP (کد وضعیت: ${res.status})`,
         latencyMs: json.latencyMs || latency,
       };
     }
@@ -320,7 +320,7 @@ export const originateVoipCall = async (params: {
         context: params.domain.voip_context || 'from-internal',
         channel_tech: params.domain.voip_channel_tech || 'SIP',
         trunk_prefix: params.domain.voip_trunk_prefix,
-        auto_answer: params.domain.voip_auto_answer ?? true,
+        auto_answer: params.domain.voip_auto_answer ?? false,
       }),
     });
 
@@ -394,11 +394,11 @@ export const hangupVoipCall = async (params: {
   }
 };
 
-// Check if Extension has an active call on Asterisk
+// Check if Extension has an active call on VoIP server and whether handset is picked up (Up)
 export const checkVoipChannelStatus = async (params: {
   callerExtension: string;
   domain: LdapDomain;
-}): Promise<{ active: boolean; duration?: number }> => {
+}): Promise<{ active: boolean; answered?: boolean; state?: string; duration?: number }> => {
   const laravelCfg = getSavedLaravelConfig();
   const targetUrl = `${laravelCfg.baseUrl.replace(/\/$/, '')}${laravelCfg.apiPrefix}/voip/channel-status`;
 
@@ -424,12 +424,14 @@ export const checkVoipChannelStatus = async (params: {
     if (res.ok) {
       return {
         active: Boolean(json.active),
+        answered: Boolean(json.answered),
+        state: json.state,
         duration: typeof json.duration === 'number' ? json.duration : undefined,
       };
     }
-    return { active: false };
+    return { active: false, answered: false };
   } catch {
-    return { active: false };
+    return { active: false, answered: false };
   }
 };
 
@@ -1760,12 +1762,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('ldap-domains/{domain}/test', [LdapDomainController::class, 'testConnection']);
     Route::post('ldap-domains/{domain}/test-voip', [LdapDomainController::class, 'testVoipConnection']);
 
-    // ۳. قابلیت تماس با یک کلیک با سرور ایزابل (Click-to-Call Originate)
+    // ۳. قابلیت تماس با یک کلیک با سرور VoIP (Click-to-Call Originate)
     Route::post('voip/originate', [VoipController::class, 'originate']);
 });`,
 
   voipController: `// app/Http/Controllers/Api/VoipController.php
-// پیاده‌سازی Click-to-Call با پروتکل Asterisk Manager Interface (AMI) ایزابل
+// پیاده‌سازی Click-to-Call با پروتکل Asterisk Manager Interface (AMI) سرور VoIP
 namespace App\\Http\\Controllers\\Api;
 
 use App\\Http\\Controllers\\Controller;
@@ -1789,19 +1791,19 @@ class VoipController extends Controller
             ], 422);
         }
 
-        // واکشی سرور ایزابل مرتبط با دامین کاربر
+        // واکشی سرور VoIP مرتبط با دامین کاربر
         $domain = LdapDomain::where('name', $user->domain)->first();
         $host = $domain->voip_server_host ?? '192.168.10.25';
         $port = $domain->voip_ami_port ?? 5038;
         $userAmi = $domain->voip_ami_username ?? 'phonebook_ami';
-        $secretAmi = $domain->voip_ami_secret ?? 'IssabelSecret!2026';
+        $secretAmi = $domain->voip_ami_secret ?? 'VoipSecret!2026';
         $context = $domain->voip_context ?? 'from-internal';
         $tech = $domain->voip_channel_tech ?? 'SIP';
 
-        // باز کردن سوکت TCP به سرور ایزابل روی پورت AMI
+        // باز کردن سوکت TCP به سرور VoIP روی پورت AMI
         $socket = @fsockopen($host, $port, $errno, $errstr, 4);
         if (!$socket) {
-            return response()->json(['message' => "خطا در برقراری ارتباط با سرور ایزابل: {$errstr}"], 500);
+            return response()->json(['message' => "خطا در برقراری ارتباط با سرور VoIP: {$errstr}"], 500);
         }
 
         // احراز هویت با AMI
@@ -1828,17 +1830,17 @@ class VoipController extends Controller
     }
 }`,
 
-  issabelManagerConf: `; /etc/asterisk/manager.conf (در سرور ایزابل)
+  issabelManagerConf: `; /etc/asterisk/manager.conf (در سرور VoIP)
 ; برای اعطای دسترسی به وب‌سرویس سرور این بلوک را در انتهای فایل قرار دهید:
 [phonebook_ami]
-secret = Issabel@2026!secret
+secret = Voip@2026!secret
 deny = 0.0.0.0/0.0.0.0
 permit = 192.168.10.0/255.255.255.0 ; رنج IP سرور وب‌سرویس
 read = originate,system,call
 write = originate,system,call`,
 
   amiBlfListener: `// app/Console/Commands/AsteriskBlfListener.php
-// شنود بلادرنگ رویدادهای ExtensionStatus استریسک/ایزابل بدون سربار روی سرور (Event-Driven Daemon)
+// شنود بلادرنگ رویدادهای ExtensionStatus سرور VoIP بدون سربار روی سرور (Event-Driven Daemon)
 namespace App\\Console\\Commands;
 
 use Illuminate\\Console\\Command;

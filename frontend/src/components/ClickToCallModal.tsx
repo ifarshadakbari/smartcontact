@@ -21,7 +21,7 @@ import {
 import { User, LdapDomain, Contact } from '../types';
 import { originateVoipCall, hangupVoipCall, checkVoipChannelStatus } from '../services/apiService';
 import { setExtensionBlfState } from '../services/blfService';
-import { formatOutboundTrunkNumber, sanitizeDigitsOnly } from '../utils/phoneUtils';
+import { formatOutboundTrunkNumber, sanitizeDigitsOnly, isInternalExtension } from '../utils/phoneUtils';
 import { AnimatedAntennaIcon } from './AnimatedAntennaIcon';
 
 interface ClickToCallModalProps {
@@ -45,10 +45,17 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
   currentUser,
   ldapDomains,
 }) => {
-  // Find user's active domain VoIP settings
+  // Find user's active domain VoIP settings with complete matching criteria
   const userDomain = ldapDomains.find(
-    (d) => d.name.toLowerCase() === (currentUser.domain || '').toLowerCase()
-  ) || ldapDomains.find((d) => d.is_default) || ldapDomains[0];
+    (d) =>
+      (currentUser.domain_id && String(d.id) === String(currentUser.domain_id)) ||
+      (currentUser.domain && (
+        String(d.id) === String(currentUser.domain) ||
+        (d.name && d.name.toLowerCase() === currentUser.domain.toLowerCase()) ||
+        (d.display_name && d.display_name.toLowerCase() === currentUser.domain.toLowerCase()) ||
+        (d.base_dn && d.base_dn.toLowerCase().includes(currentUser.domain.toLowerCase()))
+      ))
+  ) || ldapDomains.find((d) => d.is_default && d.is_active) || ldapDomains.find((d) => d.is_default) || ldapDomains[0];
 
   const defaultExt = currentUser.extension || '205';
   const [callerExtension, setCallerExtension] = useState(defaultExt);
@@ -60,10 +67,12 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
   const [ringCountdown, setRingCountdown] = useState(30);
 
   // ۵- محاسبه خودکار پیش‌شماره ترانک شهری (Trunk Prefix) برای تماس‌های خارجی
+  // برای شماره‌های داخلی سازمانی (۲ تا ۵ رقمی)، تحت هیچ شرایطی پیش‌شماره ترانک اضافه نمی‌شود.
   const rawTargetDigits = sanitizeDigitsOnly(targetNumber);
-  const trunkPrefix = userDomain?.voip_trunk_prefix;
-  const dialedNumber = formatOutboundTrunkNumber(targetNumber, trunkPrefix);
-  const isTrunkApplied = Boolean(trunkPrefix && dialedNumber !== rawTargetDigits);
+  const trunkPrefix = userDomain?.voip_trunk_prefix || ldapDomains.find((d) => d.voip_trunk_prefix)?.voip_trunk_prefix;
+  const isInternal = isInternalExtension(targetNumber, contact);
+  const dialedNumber = formatOutboundTrunkNumber(targetNumber, trunkPrefix, contact);
+  const isTrunkApplied = Boolean(!isInternal && trunkPrefix && dialedNumber !== rawTargetDigits);
 
   // Reset states when modal opens
   useEffect(() => {
@@ -91,7 +100,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     };
   }, [stage]);
 
-  // ۳- مدیریت مرحله زنگ خوردن تلفن رومیزی (ringing_desk) و مهلت پاسخگویی ایزابل
+  // ۳- مدیریت مرحله زنگ خوردن تلفن رومیزی (ringing_desk) و مهلت پاسخگویی سرور VoIP
   useEffect(() => {
     let countdownTimer: any = null;
     let pollTimer: any = null;
@@ -99,7 +108,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     if (stage === 'ringing_desk') {
       setRingCountdown(30);
 
-      // الف) تایمر شمارش معکوس مهلت پاسخگویی (۳۰ ثانیه زمان استاندارد تایم‌اوت Originate در ایزابل)
+      // الف) تایمر شمارش معکوس مهلت پاسخگویی (۳۰ ثانیه زمان استاندارد تایم‌اوت Originate در سرور VoIP)
       countdownTimer = setInterval(() => {
         setRingCountdown((prev) => {
           if (prev <= 1) {
@@ -112,7 +121,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
         });
       }, 1000);
 
-      // ب) استعلام بلادرنگ وضعیت کانال از مرکز تلفن تا به محض برداشتن گوشی تلفن، وارد مکالمه شود
+      // ب) استعلام بلادرنگ وضعیت کانال از مرکز تلفن؛ مکالمه تنها زمانی آغاز می‌شود که گوشی فیزیکی برداشته شده باشد (Up / Answered)
       if (userDomain?.voip_enabled) {
         pollTimer = setInterval(async () => {
           try {
@@ -121,14 +130,15 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
               domain: userDomain,
             });
 
-            if (status.active) {
-              // کاربر گوشی فیزیکی را برداشته است! اتصال و آغاز شمارش مکالمه
+            // تشخیص خودکار برداشتن گوشی توسط مبدا (وضعیت کانال Up یا پاسخ داده شده)
+            // تا گوشی رومیزی برداشته نشود به شمارنده نمی‌رود
+            if (status.answered === true || status.state === 'Up') {
               handleHandsetPickedUp();
             }
           } catch {
             // نادیده گرفتن خطاهای شبکه در استعلام اولیه
           }
-        }, 1500);
+        }, 1200);
       }
     }
 
@@ -200,7 +210,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
     setErrorMessage(null);
 
     try {
-      // 1. Send Originate command to Issabel
+      // 1. Send Originate command to VoIP server
       const res = await originateVoipCall({
         targetNumber: dialedNumber,
         targetName: targetDisplayName,
@@ -212,6 +222,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
         // ۲. تلفن رومیزی در حال زنگ خوردن است (هنوز مکالمه آغاز نشده است!)
         setStage('ringing_desk');
         setRingCountdown(30);
+        setExtensionBlfState(callerExtension.trim(), 'ringing', 0, targetNumber);
       } else {
         setStage('error');
         setErrorMessage(res.message);
@@ -310,12 +321,16 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
               <div className="text-xs font-mono font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-neutral-200 shadow-2xs inline-block" dir="ltr">
                 {targetNumber}
               </div>
-              {/* نشان اعمال پیش‌شماره ترانک */}
-              {isTrunkApplied && (
-                <div className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono" dir="ltr" title="پیش‌شماره خط شهری ترانک در پس‌زمینه اضافه گردید">
+              {/* نشان اعمال پیش‌شماره ترانک یا تماس داخلی */}
+              {isTrunkApplied ? (
+                <div className="flex items-center gap-1 text-[10px] text-amber-800 bg-amber-50 border border-amber-300 px-2 py-0.5 rounded font-mono" dir="ltr" title="پیش‌شماره خط شهری ترانک در پس‌زمینه اضافه گردید">
                   <span>Trunk [{trunkPrefix}]: {dialedNumber}</span>
                 </div>
-              )}
+              ) : isInternal ? (
+                <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded font-medium" title="تماس مستقیم با داخلی درون‌سازمانی (بدون پیش‌شماره ترانک)">
+                  <span>داخلی سازمانی (مستقیم)</span>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -408,7 +423,7 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                 <RotateCcw className="w-4 h-4" />
               </div>
               <div className="text-xs">
-                <div className="font-bold">در حال ارسال فرمان برقراری تماس به سرور ایزابل...</div>
+                <div className="font-bold">در حال ارسال فرمان برقراری تماس به سرور VoIP...</div>
                 <div className="text-amber-700 mt-0.5">برقراری ارتباط با مرکز تلفن و به صدا درآوردن زنگ داخلی {callerExtension}</div>
               </div>
             </div>
@@ -429,35 +444,25 @@ export const ClickToCallModal: React.FC<ClickToCallModalProps> = ({
                     </span>
                   </div>
                   <p className="text-sky-800 leading-relaxed">
-                    لطفاً گوشی تلفن روی میز خود را بردارید. به محض برداشتن گوشی، مرکز تلفن با مخاطب تماس برقرار کرده و تایمر مکالمه آغاز می‌شود.
+                    لطفاً گوشی تلفن روی میز خود را بردارید. سیستم به محض تشخیص برداشتن گوشی، با شماره مقصد ارتباط برقرار کرده و شمارش مکالمه آغاز می‌شود.
                   </p>
                 </div>
               </div>
 
-              {/* Action buttons inside ringing box */}
-              <div className="flex items-center justify-between pt-2 border-t border-sky-200 gap-2">
-                <div className="text-[11px] text-sky-700 flex items-center gap-1.5 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-sky-600 animate-ping"></span>
-                  <span>منتظر برداشتن گوشی فیزیکی تلفن (Off-hook)...</span>
+              {/* Action status & Cancel inside ringing box */}
+              <div className="flex items-center justify-between pt-2.5 border-t border-sky-200 gap-3">
+                <div className="text-[11px] text-sky-800 flex items-center gap-2 font-medium">
+                  <span className="w-2.5 h-2.5 rounded-full bg-sky-600 animate-ping shrink-0"></span>
+                  <span>در انتظار برداشتن گوشی فیزیکی تلفن رومیزی (Off-hook)...</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleHandsetPickedUp}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-xs flex items-center gap-1.5"
-                    title="تأیید برداشتن گوشی و آغاز مکالمه"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>گوشی را برداشتم (مکالمه آغاز شد)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEndCall}
-                    className="px-2.5 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 rounded-lg text-xs font-medium transition cursor-pointer"
-                  >
-                    لغو
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleEndCall}
+                  className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 rounded-lg text-xs font-semibold transition cursor-pointer shrink-0 shadow-2xs flex items-center gap-1.5"
+                >
+                  <PhoneOff className="w-3.5 h-3.5 text-rose-600" />
+                  <span>لغو تماس</span>
+                </button>
               </div>
             </div>
           )}

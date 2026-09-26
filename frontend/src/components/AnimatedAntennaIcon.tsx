@@ -27,7 +27,7 @@ export const AnimatedAntennaIcon: React.FC<AnimatedAntennaIconProps> = ({
       strokeLinecap="round"
       strokeLinejoin="round"
       className={`${sizeClasses[size]} ${className}`}
-      aria-label="آیکن وضعیت آنتن مانیتورینگ ایزابل"
+      aria-label="آیکن وضعیت آنتن مانیتورینگ سرور VoIP"
     >
       {/* Central base and antenna mast */}
       <circle cx="12" cy="18" r="1.5" fill="currentColor" />

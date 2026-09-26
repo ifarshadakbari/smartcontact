@@ -324,7 +324,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                               </div>
                               <div>
                                 <div className="font-semibold text-neutral-900">دامین‌های LDAP و ویپ</div>
-                                <div className="text-[10px] text-neutral-500">Active Directory و سرورهای ایزابل</div>
+                                <div className="text-[10px] text-neutral-500">Active Directory و سرورهای VoIP</div>
                               </div>
                             </div>
                             <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">

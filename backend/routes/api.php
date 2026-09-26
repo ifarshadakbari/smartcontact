@@ -663,7 +663,7 @@ Route::post('/domains/test-voip', function (Request $request) {
     if (empty($host)) {
         return response()->json([
             'status' => 'error',
-            'message' => 'آدرس سرور ایزابل (IP یا Hostname) تعیین نشده است.'
+            'message' => 'آدرس سرور VoIP (IP یا Hostname) تعیین نشده است.'
         ], 422);
     }
 
@@ -808,7 +808,7 @@ Route::post('/voip/originate', function (Request $request) {
     if (!$fp) {
         return response()->json([
             'status' => 'error',
-            'message' => "عدم امکان اتصال به سرور ایزابل در {$host}:{$port} ({$errstr})"
+            'message' => "عدم امکان اتصال به سرور VoIP در {$host}:{$port} ({$errstr})"
         ], 500);
     }
 
@@ -837,7 +837,7 @@ Route::post('/voip/originate', function (Request $request) {
         @fclose($fp);
         return response()->json([
             'status' => 'error',
-            'message' => 'احراز هویت در سرویس AMI ایزابل با نام کاربری یا Secret فعلی رد شد.'
+            'message' => 'احراز هویت در سرویس AMI سرور VoIP با نام کاربری یا Secret فعلی رد شد.'
         ], 401);
     }
 
@@ -846,15 +846,25 @@ Route::post('/voip/originate', function (Request $request) {
     $cleanTarget = preg_replace('/[^0-9]/', '', $targetNumber);
 
     // ۵- اعمال هوشمند پیش‌شماره خط شهری Trunk برای شماره‌های خارجی
-    $trunkPrefix = trim((string)$request->input('trunk_prefix', ''));
-    if (empty($trunkPrefix) && !empty($savedDomain) && isset($savedDomain->voip_trunk_prefix)) {
-        $trunkPrefix = trim((string)$savedDomain->voip_trunk_prefix);
-    }
-    if (!empty($trunkPrefix)) {
-        $cleanTrunk = preg_replace('/[^0-9]/', '', $trunkPrefix);
-        $isExternalCall = str_starts_with($cleanTarget, '0') || strlen($cleanTarget) > 5;
-        if ($isExternalCall && !empty($cleanTrunk) && !str_starts_with($cleanTarget, $cleanTrunk)) {
-            $cleanTarget = $cleanTrunk . $cleanTarget;
+    // نکته مهم: برای شماره‌های داخلی سازمانی (طول کمتر یا مساوی ۵ رقمی که با صفر شروع نمی‌شوند) هرگز پیش‌شماره ترانک اضافه نمی‌شود.
+    $isInternalExt = strlen($cleanTarget) <= 5 && !str_starts_with($cleanTarget, '0');
+    if (!$isInternalExt) {
+        $trunkPrefix = trim((string)$request->input('trunk_prefix', ''));
+        if (empty($trunkPrefix) && !empty($savedDomain) && isset($savedDomain->voip_trunk_prefix)) {
+            $trunkPrefix = trim((string)$savedDomain->voip_trunk_prefix);
+        }
+        if (!empty($trunkPrefix)) {
+            $cleanTrunk = preg_replace('/[^0-9]/', '', $trunkPrefix);
+            if (!empty($cleanTrunk)) {
+                // اگر قبلاً پیشوند ترانک خورده باشد (مثلاً 90912...)، دوباره اضافه نکن
+                if (!str_starts_with($cleanTarget, $cleanTrunk . '0') && !(str_starts_with($cleanTarget, $cleanTrunk) && strlen($cleanTarget) === 9)) {
+                    if (strlen($cleanTarget) === 10 && str_starts_with($cleanTarget, '9')) {
+                        $cleanTarget = $cleanTrunk . '0' . $cleanTarget;
+                    } elseif (str_starts_with($cleanTarget, '0') || strlen($cleanTarget) > 5) {
+                        $cleanTarget = $cleanTrunk . $cleanTarget;
+                    }
+                }
+            }
         }
     }
 
@@ -918,8 +928,8 @@ Route::post('/voip/originate', function (Request $request) {
         $cached = \Illuminate\Support\Facades\Cache::get($cacheKey, []);
         $now = time();
         $cached[$callerExtension] = [
-            'state' => 'busy',
-            'durationSec' => 1,
+            'state' => 'ringing',
+            'durationSec' => 0,
             'callerNumber' => $targetNumber,
             'timestamp' => $now,
         ];
@@ -1134,22 +1144,59 @@ Route::post('/voip/channel-status', function (Request $request) {
                   "ActionID: {$reqId}\r\n\r\n";
     fwrite($fp, $chanPacket);
 
-    $isActive = false;
+    $hasChannel = false;
+    $isAnswered = false;
     $channelName = null;
+    $channelState = null;
     $duration = 0;
+    $isThisChannel = false;
 
     while (!feof($fp)) {
         $l = trim(fgets($fp, 1024));
         if (stripos($l, 'EventList: Complete') !== false) break;
+        if ($l === '' || stripos($l, 'Event: CoreShowChannel') !== false) {
+            $isThisChannel = false;
+        }
         if (stripos($l, 'Channel:') === 0) {
             $ch = trim(substr($l, 8));
             if (preg_match('#(?:SIP|PJSIP)/' . preg_quote($callerExtension, '#') . '[-_]#i', $ch)) {
-                $isActive = true;
+                $hasChannel = true;
+                $isThisChannel = true;
                 $channelName = $ch;
+            } else {
+                $isThisChannel = false;
             }
         }
-        if ($isActive && stripos($l, 'Duration:') === 0) {
-            $duration = (int)trim(substr($l, 9));
+        if ($isThisChannel) {
+            if (stripos($l, 'ChannelStateDesc:') === 0) {
+                $st = trim(substr($l, 17));
+                $channelState = $st;
+                if (strcasecmp($st, 'Up') === 0) {
+                    $isAnswered = true;
+                }
+            }
+            if (stripos($l, 'ChannelState:') === 0) {
+                $stNum = trim(substr($l, 13));
+                if ($stNum === '6') {
+                    $isAnswered = true;
+                }
+            }
+            if (stripos($l, 'BridgedChannel:') === 0) {
+                $bCh = trim(substr($l, 15));
+                if (!empty($bCh) && $bCh !== '(None)') {
+                    $isAnswered = true;
+                }
+            }
+            if (stripos($l, 'Duration:') === 0) {
+                $durStr = trim(substr($l, 9));
+                if (strpos($durStr, ':') !== false) {
+                    $parts = array_reverse(explode(':', $durStr));
+                    $secs = (int)($parts[0] ?? 0) + ((int)($parts[1] ?? 0) * 60) + ((int)($parts[2] ?? 0) * 3600);
+                    $duration = $secs;
+                } else {
+                    $duration = (int)$durStr;
+                }
+            }
         }
     }
 
@@ -1157,7 +1204,9 @@ Route::post('/voip/channel-status', function (Request $request) {
     @fclose($fp);
 
     return response()->json([
-        'active' => $isActive,
+        'active' => $hasChannel,
+        'answered' => $isAnswered,
+        'state' => $isAnswered ? 'Up' : ($hasChannel ? ($channelState ?: 'Ringing') : 'Down'),
         'channel' => $channelName,
         'duration' => $duration,
     ]);
